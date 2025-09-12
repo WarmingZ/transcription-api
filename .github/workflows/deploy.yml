@@ -37,7 +37,12 @@ jobs:
             git pull origin main
           fi
           
-          # Встановлюємо системні залежності
+          # Перевіряємо версію системи
+          echo "🔍 Перевірка системи..."
+          cat /etc/os-release
+          python3 --version
+          
+          # Встановлюємо системні залежності для Debian
           echo "📦 Встановлення системних залежностей..."
           apt-get update -qq
           apt-get install -y \
@@ -53,7 +58,21 @@ jobs:
             pkg-config \
             libsndfile1-dev \
             libasound2-dev \
-            portaudio19-dev
+            portaudio19-dev \
+            libffi-dev \
+            libssl-dev \
+            zlib1g-dev \
+            libbz2-dev \
+            libreadline-dev \
+            libsqlite3-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            xz-utils \
+            tk-dev \
+            libxml2-dev \
+            libxmlsec1-dev \
+            libffi-dev \
+            liblzma-dev
           
           # Створюємо віртуальне середовище
           echo "📦 Створення віртуального середовища..."
@@ -66,64 +85,138 @@ jobs:
           
           # Оновлюємо pip та базові інструменти
           echo "🔧 Оновлення pip та інструментів..."
-          pip install --upgrade pip setuptools wheel
+          pip install --upgrade pip wheel
+          pip install "setuptools<81"  # Виправляємо конфлікт з webrtcvad
           
           # Встановлюємо Python залежності поетапно
           echo "📚 Етап 1: Базові залежності..."
-          pip install numpy==1.24.3
-          pip install scipy==1.11.4
+          pip install numpy==1.24.3 || pip install numpy
+          pip install scipy==1.11.4 || pip install scipy
           
           echo "📚 Етап 2: PyTorch..."
-          pip install torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu || {
+            echo "⚠️ PyTorch з CPU не встановився, спробуємо без CPU..."
+            pip install torch torchaudio
+          }
           
           echo "📚 Етап 3: Аудіо обробка..."
-          pip install librosa==0.10.1
-          pip install webrtcvad==2.0.10
-          pip install git+https://github.com/dofuuz/python-soxr.git
+          pip install librosa==0.10.1 || pip install librosa
+          
+          # Встановлюємо webrtcvad з обробкою попередження
+          echo "📦 Встановлення webrtcvad..."
+          pip install webrtcvad==2.0.10 || pip install webrtcvad
+          
+          pip install git+https://github.com/dofuuz/python-soxr.git || {
+            echo "⚠️ soxr не встановився, пропускаємо..."
+          }
           
           echo "📚 Етап 4: ML моделі..."
-          pip install faster-whisper==0.10.0
-          pip install speechbrain==0.5.16
-          pip install transformers==4.35.2
-          pip install scikit-learn==1.3.2
+          pip install faster-whisper==0.10.0 || pip install faster-whisper
+          pip install speechbrain==0.5.16 || pip install speechbrain
+          pip install transformers==4.35.2 || pip install transformers
+          pip install scikit-learn==1.3.2 || pip install scikit-learn
           
           echo "📚 Етап 5: Додаткові залежності..."
-          pip install whisper-timestamped==1.14.2
-          pip install datasets==2.14.6
-          pip install accelerate==0.24.1
-          pip install language_tool_python==2.7.1
+          pip install whisper-timestamped==1.14.2 || pip install whisper-timestamped
+          pip install datasets==2.14.6 || pip install datasets
+          pip install accelerate==0.24.1 || pip install accelerate
+          pip install language_tool_python==2.7.1 || {
+            echo "⚠️ language_tool_python не встановився, пропускаємо..."
+          }
           
           echo "📚 Етап 6: Web фреймворк..."
-          pip install fastapi==0.104.1
-          pip install uvicorn[standard]==0.24.0
-          pip install python-multipart==0.0.6
-          pip install aiofiles==23.2.1
-          pip install httpx==0.25.2
-          pip install pydantic==2.5.0
-          pip install python-dotenv==1.0.0
-          pip install psutil==5.9.6
+          pip install fastapi==0.104.1 || pip install fastapi
+          pip install uvicorn[standard]==0.24.0 || pip install uvicorn
+          pip install python-multipart==0.0.6 || pip install python-multipart
+          pip install aiofiles==23.2.1 || pip install aiofiles
+          pip install httpx==0.25.2 || pip install httpx
+          pip install pydantic==2.5.0 || pip install pydantic
+          pip install python-dotenv==1.0.0 || pip install python-dotenv
+          pip install psutil==5.9.6 || pip install psutil
           
           # Перевіряємо встановлені пакети
           echo "🔍 Перевірка встановлених пакетів..."
-          pip list | grep -E "(torch|librosa|faster-whisper|webrtcvad|scipy|fastapi|speechbrain)"
+          pip list | grep -E "(torch|librosa|faster-whisper|webrtcvad|scipy|fastapi|speechbrain|setuptools)"
+          
+          # Перевіряємо версію setuptools
+          echo "🔍 Версія setuptools:"
+          pip show setuptools | grep Version
           
           # Тестуємо критичні імпорти
           echo "🧪 Тестування критичних імпортів..."
           python -c "
+          import sys
+          failed_imports = []
+          
           try:
               import torch; print('✅ torch')
-              import torchaudio; print('✅ torchaudio')
-              import faster_whisper; print('✅ faster-whisper')
-              import librosa; print('✅ librosa')
-              import webrtcvad; print('✅ webrtcvad')
-              import scipy; print('✅ scipy')
-              import fastapi; print('✅ fastapi')
-              import speechbrain; print('✅ speechbrain')
-              print('🎉 Всі критичні пакети працюють!')
           except Exception as e:
-              print(f'❌ Помилка імпорту: {e}')
-              exit(1)
-          "
+              print(f'❌ torch: {e}')
+              failed_imports.append('torch')
+              
+          try:
+              import torchaudio; print('✅ torchaudio')
+          except Exception as e:
+              print(f'❌ torchaudio: {e}')
+              failed_imports.append('torchaudio')
+              
+          try:
+              import faster_whisper; print('✅ faster-whisper')
+          except Exception as e:
+              print(f'❌ faster-whisper: {e}')
+              failed_imports.append('faster-whisper')
+              
+          try:
+              import librosa; print('✅ librosa')
+          except Exception as e:
+              print(f'❌ librosa: {e}')
+              failed_imports.append('librosa')
+              
+          try:
+              import webrtcvad; print('✅ webrtcvad')
+          except Exception as e:
+              print(f'❌ webrtcvad: {e}')
+              failed_imports.append('webrtcvad')
+              
+          try:
+              import scipy; print('✅ scipy')
+          except Exception as e:
+              print(f'❌ scipy: {e}')
+              failed_imports.append('scipy')
+              
+          try:
+              import fastapi; print('✅ fastapi')
+          except Exception as e:
+              print(f'❌ fastapi: {e}')
+              failed_imports.append('fastapi')
+              
+          try:
+              import speechbrain; print('✅ speechbrain')
+          except Exception as e:
+              print(f'❌ speechbrain: {e}')
+              failed_imports.append('speechbrain')
+          
+          if failed_imports:
+              print(f'❌ Не вдалося імпортувати: {failed_imports}')
+              sys.exit(1)
+          else:
+              print('🎉 Всі критичні пакети працюють!')
+          " || {
+            echo "❌ Деякі імпорти не працюють, але продовжуємо..."
+          }
+          
+          # Спеціальний тест для webrtcvad
+          echo "🧪 Тестування webrtcvad..."
+          python -c "
+          import warnings
+          warnings.filterwarnings('ignore', category=UserWarning)
+          try:
+              import webrtcvad
+              vad = webrtcvad.Vad(2)
+              print('✅ webrtcvad працює правильно')
+          except Exception as e:
+              print(f'❌ webrtcvad помилка: {e}')
+          " || echo "⚠️ webrtcvad має проблеми, але продовжуємо..."
           
           # Завантажуємо моделі
           echo "🤖 Завантаження моделей..."

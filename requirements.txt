@@ -34,5 +34,8 @@ language_tool_python==2.7.1
 # System
 psutil==5.9.6
 
+# Fix for Python 3.13 compatibility
+setuptools<81
+
 # Audio Enhancement (Git)
 # soxr - встановлюється через git в деплої
