@@ -59,6 +59,18 @@ jobs:
           echo "📦 Встановлення інших залежностей..."
           pip install webrtcvad
           pip install git+https://github.com/dofuuz/python-soxr.git
+          
+          echo "🔧 Виправлення конфлікту setuptools для Python 3.13..."
+          pip install "setuptools<81" --force-reinstall
+          
+          echo "📦 Встановлення faster-whisper..."
+          pip install faster-whisper[openvino]==0.10.0 || {
+            echo "⚠️ Основний спосіб не спрацював, спробуємо альтернативний..."
+            pip install faster-whisper==0.10.0
+          }
+          
+          echo "📦 Встановлення решти залежностей..."
+          pip install -r requirements.txt --no-deps
           pip install -r requirements.txt
           
           echo "🤖 Завантаження моделей..."
@@ -70,7 +82,10 @@ jobs:
           fi
           
           echo "🔍 Перевірка встановлених пакетів..."
-          pip list | grep -E "(torch|librosa|faster-whisper|webrtcvad|scipy)"
+          pip list | grep -E "(torch|librosa|faster-whisper|webrtcvad|scipy|setuptools)"
+          
+          echo "🧪 Тестування імпорту faster-whisper..."
+          python -c "import faster_whisper; print('✅ faster-whisper працює!')" || echo "❌ faster-whisper не працює!"
           
           mkdir -p logs temp
           
