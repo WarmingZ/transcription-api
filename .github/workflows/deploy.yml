@@ -23,8 +23,8 @@ jobs:
           echo "🚀 Деплой Ukrainian Transcription API"
           echo "======================================"
           
-          # Переходимо в домашню директорію
-          cd ~
+          # Переходимо в системну директорію
+          cd /opt
           
           # Створюємо директорію проекту
           mkdir -p transcription-api
@@ -45,8 +45,8 @@ jobs:
           
           # Встановлюємо системні залежності
           echo "📦 Встановлення системних залежностей..."
-          sudo apt-get update -qq
-          sudo apt-get install -y curl python3-pip python3-venv
+          apt-get update -qq
+          apt-get install -y curl python3-pip python3-venv git
           
           # Створюємо віртуальне середовище
           echo "📦 Створення віртуального середовища..."
@@ -95,11 +95,11 @@ jobs:
             echo "🌐 API доступне: http://176.9.9.106:8000"
             echo "📊 Веб-інтерфейс: http://176.9.9.106:8000"
             echo "📖 Документація: http://176.9.9.106:8000/docs"
-            echo "📁 Проект: ~/transcription-api"
-            echo "📋 Логи: ~/transcription-api/logs/app.log"
+            echo "📁 Проект: /opt/transcription-api"
+            echo "📋 Логи: /opt/transcription-api/logs/app.log"
             echo ""
             echo "🔄 Управління сервісом:"
-            echo "   cd ~/transcription-api"
+            echo "   cd /opt/transcription-api"
             echo "   pkill -f 'python3 main.py'  # зупинити"
             echo "   nohup python3 main.py > logs/app.log 2>&1 &  # запустити"
             echo ""
