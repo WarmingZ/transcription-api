@@ -36,7 +36,7 @@ jobs:
           # Встановлюємо системні залежності
           echo "📦 Встановлення системних залежностей..."
           apt-get update -qq
-          apt-get install -y python3 python3-pip python3-venv python3-dev ffmpeg curl git
+          apt-get install -y python3 python3-pip python3-venv python3-dev ffmpeg curl git gfortran build-essential
           
           # Створюємо віртуальне середовище
           echo "📦 Створення віртуального середовища..."
@@ -45,11 +45,44 @@ jobs:
           
           # Оновлюємо pip
           echo "🔧 Оновлення pip..."
-          pip install --upgrade pip
+          pip install --upgrade pip setuptools wheel
           
-          # Встановлюємо залежності
-          echo "📚 Встановлення залежностей..."
-          pip install -r requirements.txt
+          # Встановлюємо залежності поетапно
+          echo "📚 Етап 1: Базові залежності..."
+          pip install numpy scipy
+          
+          echo "📚 Етап 2: PyTorch..."
+          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          
+          echo "📚 Етап 3: ML моделі..."
+          pip install faster-whisper librosa webrtcvad
+          
+          echo "📚 Етап 4: Web фреймворк..."
+          pip install fastapi uvicorn python-multipart aiofiles httpx pydantic python-dotenv
+          
+          echo "📚 Етап 5: Додаткові залежності..."
+          pip install scikit-learn transformers whisper-timestamped datasets accelerate language_tool_python psutil
+          
+          # Перевіряємо встановлені пакети
+          echo "🔍 Перевірка встановлених пакетів..."
+          pip list | grep -E "(torch|numpy|scipy|fastapi|faster-whisper|librosa|webrtcvad)"
+          
+          # Тестуємо критичні імпорти
+          echo "🧪 Тестування критичних імпортів..."
+          python -c "
+          try:
+              import torch; print('✅ PyTorch')
+              import numpy; print('✅ NumPy')
+              import scipy; print('✅ SciPy')
+              import fastapi; print('✅ FastAPI')
+              import faster_whisper; print('✅ Faster Whisper')
+              import librosa; print('✅ Librosa')
+              import webrtcvad; print('✅ WebRTC VAD')
+              print('🎉 Всі критичні пакети працюють!')
+          except Exception as e:
+              print(f'❌ Помилка імпорту: {e}')
+              exit(1)
+          "
           
           # Завантажуємо моделі
           echo "🤖 Завантаження моделей..."

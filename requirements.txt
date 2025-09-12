@@ -8,8 +8,8 @@ pydantic==2.5.0
 python-dotenv==1.0.0
 
 # Core ML/AI
-torch==2.1.0
-torchaudio==2.1.0
+torch>=2.5.0
+torchaudio>=2.5.0
 faster-whisper==0.10.0
 
 # Audio Processing
