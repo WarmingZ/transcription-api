@@ -37,11 +37,11 @@ jobs:
           
           echo "📦 Встановлення системних залежностей..."
           apt-get update -qq
-          apt-get install -y curl software-properties-common git python3.10 python3.10-venv python3.10-dev python3-pip
+          apt-get install -y curl git python3 python3-venv python3-dev python3-pip ffmpeg
 
           echo "📦 Створення віртуального середовища..."
           if [ ! -d "venv" ]; then
-            python3.10 -m venv venv
+            python3 -m venv venv
           fi
           
           source venv/bin/activate
@@ -51,15 +51,20 @@ jobs:
           pip install numpy
           pip install torch>=2.5.0 --index-url https://download.pytorch.org/whl/cpu
           pip install torchaudio>=2.5.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install librosa scipy
           pip install git+https://github.com/dofuuz/python-soxr.git
           pip install -r requirements.txt
           
           echo "🤖 Завантаження моделей..."
           if [ ! -d "models/faster-whisper-medium" ]; then
+            echo "📥 Завантаження моделей Whisper..."
             python download_models.py
           else
             echo "✅ Моделі вже завантажені"
           fi
+          
+          echo "🔍 Перевірка встановлених пакетів..."
+          pip list | grep -E "(torch|librosa|faster-whisper)"
           
           mkdir -p logs temp
           
