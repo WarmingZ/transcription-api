@@ -1,0 +1,15 @@
+# Приклад файлу змінних середовища
+# Скопіюйте цей файл в .env та заповніть необхідні значення
+
+# Налаштування сервера
+HOST=0.0.0.0
+PORT=8000
+
+# Налаштування моделей (локальні)
+WHISPER_MODEL=base
+DIARIZATION_MODEL=speechbrain/spkrec-ecapa-voxceleb
+
+# Налаштування обробки
+MAX_FILE_SIZE_MB=25
+TEMP_DIR=/tmp/transcription
+MODELS_DIR=./pretrained_models
