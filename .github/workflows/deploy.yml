@@ -108,6 +108,7 @@ jobs:
           
           # Зупиняємо старий процес
           echo "🛑 Зупинка старого процесу..."
+          screen -S transcription-api -X quit || true
           pkill -f "python main.py" || true
           sleep 3
           
@@ -117,12 +118,19 @@ jobs:
             exit 1
           fi
           
-          # Запускаємо API
-          echo "🚀 Запуск API..."
-          nohup venv/bin/python main.py > logs/app.log 2>&1 &
-          API_PID=$!
+          # Запускаємо API через screen для стабільності
+          echo "🚀 Запуск API через screen..."
+          
+          # Встановлюємо screen якщо не встановлений
+          apt-get install -y screen
+          
+          # Запускаємо API в screen сесії
+          screen -dmS transcription-api bash -c "cd /root/transcription-api && source venv/bin/activate && python main.py > logs/app.log 2>&1"
+          
+          # Отримуємо PID процесу
+          API_PID=$(pgrep -f "python main.py")
           echo $API_PID > logs/app.pid
-          echo "✅ API запущено з PID: $API_PID"
+          echo "✅ API запущено в screen сесії 'transcription-api' з PID: $API_PID"
           
           # Очікуємо запуску
           echo "⏳ Очікування запуску (30 секунд)..."
@@ -135,6 +143,8 @@ jobs:
             echo "❌ Процес API зупинився"
             echo "📋 Останні логи:"
             tail -50 logs/app.log
+            echo "📋 Screen сесії:"
+            screen -ls || echo "Screen не встановлений"
             exit 1
           fi
           
@@ -159,7 +169,13 @@ jobs:
             echo "📖 Документація: http://localhost:8000/docs"
             echo "🖥️ Веб-інтерфейс: http://localhost:8000/static/index.html"
             echo "📋 PID процесу: $API_PID"
+            echo "🖥️ Screen сесія: transcription-api"
             echo "📁 Логи: logs/app.log"
+            echo ""
+            echo "💡 Корисні команди:"
+            echo "   screen -r transcription-api  # Підключитися до сесії"
+            echo "   screen -ls                   # Показати всі сесії"
+            echo "   screen -S transcription-api -X quit  # Зупинити сесію"
           else
             echo "❌ ПОМИЛКА ЗАПУСКУ!"
             echo "📋 Останні логи:"

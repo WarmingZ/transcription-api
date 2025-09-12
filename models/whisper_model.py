@@ -129,15 +129,14 @@ class LocalWhisperModel:
             segments, info = self.model.transcribe(
                 audio,  # Передаємо масив напряму
                 language=language,
-                beam_size=SPEED_OPTIMIZED_BEAM_SIZE,  # Завжди 1
-                word_timestamps=True,
-                vad_filter=SPEED_OPTIMIZED_VAD,  # Тепер True для кращого виявлення
-                vad_parameters=dict(
-                    min_silence_duration_ms=300,  # Зменшено з 500 до 300 для кращого виявлення
-                    speech_pad_ms=100,  # Додано буфер навколо мовлення
-                ) if SPEED_OPTIMIZED_VAD else None,
+                beam_size=1,  # Мінімальний для швидкості
+                word_timestamps=False,  # Вимкнено для швидкості
+                vad_filter=False,  # Вимкнено для швидкості
                 temperature=0.0,  # Детерміністичний результат
                 best_of=1,  # Тільки один варіант
+                condition_on_previous_text=False,  # Вимкнено для швидкості
+                initial_prompt=None,  # Без попереднього тексту
+                suppress_tokens=[-1],  # Придушення спеціальних токенів
             )
             
             # Конвертуємо результат у формат, сумісний з оригінальним API
@@ -286,16 +285,20 @@ class LocalWhisperModel:
         """Визначає оптимальний розмір сегментів для максимальної швидкості"""
         logger.info(f"🔍 Визначення розміру чанку для файлу тривалістю {duration:.1f}s")
         
-        # Для файлів коротших за 2 хвилини - не розбиваємо на чанки
-        if duration < 120:  # < 2 хв
+        # Оптимізована логіка чанків для кращої продуктивності
+        if duration < 60:  # < 1 хв - не розбиваємо
             chunk_size = int(duration) + 1
-            logger.info(f"🔍 Файл < 2 хв: chunk_size = {chunk_size}s (не розбиваємо)")
+            logger.info(f"🔍 Файл < 1 хв: chunk_size = {chunk_size}s (не розбиваємо)")
             return chunk_size
-        elif duration < 1800:  # < 30 хв
+        elif duration < 300:  # < 5 хв - малі чанки
+            chunk_size = SPEED_OPTIMIZED_CHUNK_SIZES['short']
+            logger.info(f"🔍 Файл < 5 хв: chunk_size = {chunk_size}s (short)")
+            return chunk_size
+        elif duration < 1800:  # < 30 хв - середні чанки
             chunk_size = SPEED_OPTIMIZED_CHUNK_SIZES['medium']
-            logger.info(f"🔍 Файл 2-30 хв: chunk_size = {chunk_size}s (medium)")
+            logger.info(f"🔍 Файл < 30 хв: chunk_size = {chunk_size}s (medium)")
             return chunk_size
-        else:  # > 30 хв
+        else:  # > 30 хв - великі чанки
             chunk_size = SPEED_OPTIMIZED_CHUNK_SIZES['long']
             logger.info(f"🔍 Файл > 30 хв: chunk_size = {chunk_size}s (long)")
             return chunk_size
@@ -419,9 +422,9 @@ class LocalWhisperModel:
                 logger.info("✅ Тільки один чанк, використовується звичайна транскрипція")
                 return self.transcribe(audio_path, language)
             
-            # Динамічне визначення кількості процесів
+            # Оптимізоване визначення кількості процесів для 4-ядерного сервера
             import os
-            max_workers = min(os.cpu_count(), len(chunk_data), 8)  # Обмежуємо для стабільності
+            max_workers = min(MAX_WORKERS, len(chunk_data), 2)  # Обмежуємо до 2 процесів для стабільності
             logger.info(f"🚀 Паралельна транскрипція {len(chunk_data)} сегментів з {max_workers} процесами...")
             logger.info(f"⚡ Очікуване прискорення: ~{max_workers}x швидше ніж послідовна обробка")
             
@@ -524,19 +527,17 @@ class LocalWhisperModel:
             # Завантажуємо модель в worker процесі
             model = WhisperModel("small", device=device, compute_type=compute_type)
             
-            # Транскрибуємо з оптимізованими параметрами
+            # Транскрибуємо з оптимізованими параметрами для швидкості
             segments, info = model.transcribe(
                 chunk_audio,
                 language=language,
                 beam_size=1,  # Максимальна швидкість
-                word_timestamps=True,
-                vad_filter=True,  # Увімкнено для кращого виявлення
-                vad_parameters=dict(
-                    min_silence_duration_ms=300,
-                    speech_pad_ms=100,
-                ),
+                word_timestamps=False,  # Вимкнено для швидкості
+                vad_filter=False,  # Вимкнено для швидкості
                 temperature=0.0,
                 best_of=1,
+                condition_on_previous_text=False,  # Вимкнено для швидкості
+                suppress_tokens=[-1],  # Придушення спеціальних токенів
             )
             
             segments_list = []

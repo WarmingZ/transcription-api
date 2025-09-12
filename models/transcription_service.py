@@ -125,7 +125,7 @@ class LocalTranscriptionService:
                 try:
                     import librosa
                     duration = librosa.get_duration(path=audio_path)
-                    if duration > 120:  # Поріг 2 хвилини для швидкої обробки
+                    if duration > 60:  # Поріг 1 хвилина для швидкої обробки
                         logger.info(f"Файл довжиною {duration:.1f}с - використовується паралельна обробка")
                         import asyncio
                         try:
