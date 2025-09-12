@@ -51,8 +51,16 @@ jobs:
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: ${{ secrets.SERVER_PORT }}
+        timeout: 600s
+        command_timeout: 300s
         script: |
           echo "🚀 Початок деплою Transcription API..."
+          
+          # Перевірка SSH підключення
+          echo "🔍 Перевірка SSH підключення..."
+          whoami
+          pwd
+          echo "✅ SSH підключення працює"
           
           # Створюємо директорію проекту
           sudo mkdir -p /opt/transcription-api
@@ -111,35 +119,69 @@ jobs:
             echo "✅ Моделі вже завантажені"
           fi
           
-          # Зупиняємо старий процес (якщо запущений)
-          echo "🛑 Зупинка старого процесу..."
-          pkill -f "python3 main.py" || true
-          sleep 2
+          # Створюємо systemd сервіс
+          echo "⚙️ Створення systemd сервісу..."
+          sudo tee /etc/systemd/system/transcription-api.service > /dev/null << EOF
+[Unit]
+Description=Transcription API Service
+After=network.target
+
+[Service]
+Type=simple
+User=${{ secrets.SERVER_USER }}
+Group=${{ secrets.SERVER_USER }}
+WorkingDirectory=/opt/transcription-api
+Environment=API_KEY=your-secret-api-key-here
+ExecStart=/opt/transcription-api/venv/bin/python main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+          # Перезавантажуємо systemd та вмикаємо сервіс
+          echo "🔄 Налаштування systemd сервісу..."
+          sudo systemctl daemon-reload
+          sudo systemctl enable transcription-api.service
           
-          # Запускаємо сервіс в фоновому режимі
-          echo "🚀 Запуск сервісу..."
-          export API_KEY="your-secret-api-key-here"
-          nohup python3 main.py > logs/app.log 2>&1 &
-          echo $! > logs/app.pid
+          # Перезапускаємо сервіс
+          echo "🛑 Перезапуск сервісу..."
+          sudo systemctl restart transcription-api.service
           
           # Чекаємо запуску
           echo "⏳ Очікування запуску сервісу..."
-          sleep 10
+          sleep 5
           
-          # Перевіряємо статус
-          echo "🔍 Перевірка статусу сервісу..."
+          # Перевіряємо статус systemd сервісу
+          echo "🔍 Перевірка статусу systemd сервісу..."
+          sudo systemctl status transcription-api.service --no-pager
+          
+          # Перевіряємо API
+          echo "🌐 Перевірка API..."
           if curl -f http://localhost:8000/health; then
             echo "✅ Сервіс запущений успішно!"
             echo "🌐 API доступне за адресою: http://176.9.9.106:8000"
             echo "📊 Веб-інтерфейс: http://176.9.9.106:8000"
             echo "📖 Документація API: http://176.9.9.106:8000/docs"
+            echo "📋 Логи сервісу: sudo journalctl -u transcription-api.service -f"
+            echo "🔄 Управління сервісом:"
+            echo "   sudo systemctl start transcription-api.service"
+            echo "   sudo systemctl stop transcription-api.service"
+            echo "   sudo systemctl restart transcription-api.service"
+            echo "   sudo systemctl status transcription-api.service"
           else
             echo "❌ Помилка запуску сервісу"
-            echo "📋 Останні логи:"
-            cat logs/app.log
+            echo "📋 Останні логи systemd:"
+            sudo journalctl -u transcription-api.service --no-pager -n 20
             exit 1
           fi
           
           echo "🎉 Деплой завершено успішно!"
-          echo "📝 Логи зберігаються в: /opt/transcription-api/logs/app.log"
-          echo "🔄 Для перезапуску: pkill -f 'python3 main.py' && cd /opt/transcription-api && nohup python3 main.py > logs/app.log 2>&1 &"
+          echo "📝 Логи зберігаються в systemd journal"
+          echo "🔄 Управління сервісом:"
+          echo "   sudo systemctl restart transcription-api.service"
+          echo "   sudo systemctl status transcription-api.service"
+          echo "   sudo journalctl -u transcription-api.service -f"
