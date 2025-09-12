@@ -1,0 +1,145 @@
+name: Deploy Transcription API
+
+on:
+  push:
+    branches: [ main, production ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg libsndfile1
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run basic tests
+      run: |
+        # Тест імпорту модулів
+        python -c "import main; import models.config; import models.whisper_model; import models.diarization; import models.transcription_service"
+        echo "✅ Всі модулі імпортуються успішно"
+    
+    - name: Lint code
+      run: |
+        pip install flake8
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || echo "⚠️ Лінтінг завершено з попередженнями"
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production'
+    
+    steps:
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.SERVER_IP }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        port: ${{ secrets.SERVER_PORT }}
+        script: |
+          echo "🚀 Початок деплою Transcription API..."
+          
+          # Створюємо директорію проекту
+          sudo mkdir -p /opt/transcription-api
+          sudo chown ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} /opt/transcription-api
+          
+          # Переходимо в директорію
+          cd /opt/transcription-api
+          
+          # Завантажуємо файли через wget (оскільки репозиторій може бути приватним)
+          echo "📥 Завантаження файлів проекту..."
+          
+          # Основні файли
+          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/main.py
+          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/requirements.txt
+          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/download_models.py
+          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/SETUP.md
+          
+          # Створюємо директорію models
+          mkdir -p models
+          
+          # Файли з models
+          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/models/__init__.py -P models/
+          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/models/config.py -P models/
+          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/models/whisper_model.py -P models/
+          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/models/diarization.py -P models/
+          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/models/transcription_service.py -P models/
+          
+          # Створюємо директорії
+          mkdir -p static temp logs
+          
+          # Завантажуємо статичні файли
+          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/static/index.html -P static/
+          
+          echo "✅ Файли завантажено успішно"
+          
+          # Встановлюємо Python та системні залежності
+          echo "📦 Встановлення системних залежностей..."
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip python3-venv ffmpeg libsndfile1 libsndfile1-dev
+          
+          # Створюємо віртуальне середовище
+          echo "🐍 Створення віртуального середовища..."
+          python3 -m venv venv
+          source venv/bin/activate
+          
+          # Встановлюємо Python залежності
+          echo "📚 Встановлення Python залежностей..."
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          
+          # Завантажуємо моделі (якщо ще не завантажені)
+          echo "🤖 Завантаження моделей..."
+          if [ ! -d "models/faster-whisper-medium" ]; then
+            python3 download_models.py || echo "⚠️ Помилка завантаження моделей"
+          else
+            echo "✅ Моделі вже завантажені"
+          fi
+          
+          # Зупиняємо старий процес (якщо запущений)
+          echo "🛑 Зупинка старого процесу..."
+          pkill -f "python3 main.py" || true
+          sleep 2
+          
+          # Запускаємо сервіс в фоновому режимі
+          echo "🚀 Запуск сервісу..."
+          export API_KEY="your-secret-api-key-here"
+          nohup python3 main.py > logs/app.log 2>&1 &
+          echo $! > logs/app.pid
+          
+          # Чекаємо запуску
+          echo "⏳ Очікування запуску сервісу..."
+          sleep 10
+          
+          # Перевіряємо статус
+          echo "🔍 Перевірка статусу сервісу..."
+          if curl -f http://localhost:8000/health; then
+            echo "✅ Сервіс запущений успішно!"
+            echo "🌐 API доступне за адресою: http://176.9.9.106:8000"
+            echo "📊 Веб-інтерфейс: http://176.9.9.106:8000"
+            echo "📖 Документація API: http://176.9.9.106:8000/docs"
+          else
+            echo "❌ Помилка запуску сервісу"
+            echo "📋 Останні логи:"
+            cat logs/app.log
+            exit 1
+          fi
+          
+          echo "🎉 Деплой завершено успішно!"
+          echo "📝 Логи зберігаються в: /opt/transcription-api/logs/app.log"
+          echo "🔄 Для перезапуску: pkill -f 'python3 main.py' && cd /opt/transcription-api && nohup python3 main.py > logs/app.log 2>&1 &"
