@@ -23,14 +23,10 @@ jobs:
           echo "🚀 Деплой Ukrainian Transcription API"
           echo "======================================"
           
-          # Переходимо в домашню директорію root
           cd /root
-          
-          # Створюємо директорію проекту
           mkdir -p transcription-api
           cd transcription-api
           
-          # Клонуємо або оновлюємо репозиторій
           if [ ! -d ".git" ]; then
             echo "📥 Клонування репозиторію..."
             git clone https://github.com/WarmingZ/transcription-api.git .
@@ -39,30 +35,24 @@ jobs:
             git pull origin main
           fi
           
-          # Встановлюємо системні залежності
           echo "📦 Встановлення системних залежностей..."
           apt-get update -qq
           apt-get install -y curl software-properties-common git python3.10 python3.10-venv python3.10-dev python3-pip
-          
-          # Створюємо віртуальне середовище
+
           echo "📦 Створення віртуального середовища..."
           if [ ! -d "venv" ]; then
             python3.10 -m venv venv
           fi
           
-          # Активуємо venv
           source venv/bin/activate
-          
-          # Оновлюємо pip/setuptools/wheel
           pip install --upgrade pip setuptools wheel
-          
-          # Встановлюємо залежності
+
           echo "📚 Встановлення Python залежностей..."
           pip install numpy
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install git+https://github.com/dofuuz/python-soxr.git
           pip install -r requirements.txt
           
-          # Завантажуємо моделі
           echo "🤖 Завантаження моделей..."
           if [ ! -d "models/faster-whisper-medium" ]; then
             python download_models.py
@@ -70,46 +60,24 @@ jobs:
             echo "✅ Моделі вже завантажені"
           fi
           
-          # Створюємо директорії
           mkdir -p logs temp
           
-          # Зупиняємо старий процес
           echo "🛑 Зупинка старого процесу..."
           pkill -f "python main.py" || true
           sleep 3
           
-          # Запускаємо новий процес
           echo "🚀 Запуск API..."
           nohup venv/bin/python main.py > logs/app.log 2>&1 &
           echo $! > logs/app.pid
           
-          # Чекаємо запуску
           echo "⏳ Очікування запуску (15 секунд)..."
           sleep 15
           
-          # Перевіряємо статус
           echo "🔍 Перевірка статусу API..."
           if curl -f http://localhost:8000/health; then
-            echo ""
             echo "✅ ДЕПЛОЙ УСПІШНИЙ!"
-            echo "🌐 API доступне: http://176.9.9.106:8000"
-            echo "📊 Веб-інтерфейс: http://176.9.9.106:8000"
-            echo "📖 Документація: http://176.9.9.106:8000/docs"
-            echo "📁 Проект: /root/transcription-api"
-            echo "📋 Логи: /root/transcription-api/logs/app.log"
-            echo ""
-            echo "🔄 Управління сервісом:"
-            echo "   cd /root/transcription-api"
-            echo "   pkill -f 'python main.py'  # зупинити"
-            echo "   nohup venv/bin/python main.py > logs/app.log 2>&1 &  # запустити"
-            echo ""
           else
             echo "❌ ПОМИЛКА ЗАПУСКУ!"
-            echo "📋 Останні логи:"
             tail -20 logs/app.log
-            echo ""
-            echo "🔧 Діагностика:"
-            echo "   ps aux | grep python"
-            echo "   netstat -tlnp | grep 8000"
             exit 1
           fi
