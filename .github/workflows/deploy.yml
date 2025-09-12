@@ -1,47 +1,12 @@
-name: Deploy Transcription API
+name: Deploy API
 
 on:
   push:
-    branches: [ main, production ]
-  pull_request:
     branches: [ main ]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-    
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg libsndfile1
-    
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-    
-    - name: Run basic tests
-      run: |
-        # Тест імпорту модулів
-        python -c "import main; import models.config; import models.whisper_model; import models.diarization; import models.transcription_service"
-        echo "✅ Всі модулі імпортуються успішно"
-    
-    - name: Lint code
-      run: |
-        pip install flake8
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || echo "⚠️ Лінтінг завершено з попередженнями"
-
   deploy:
-    needs: test
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/heads/production')
     
     steps:
     - name: Deploy to server
@@ -51,147 +16,51 @@ jobs:
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: ${{ secrets.SERVER_PORT }}
-        timeout: 600s
-        command_timeout: 300s
         script: |
-          echo "🚀 Початок деплою Transcription API..."
+          echo "🚀 Збірка та запуск API..."
           
-          # Перевірка SSH підключення
-          echo "🔍 Перевірка SSH підключення..."
-          whoami
-          pwd
-          echo "✅ SSH підключення працює"
-          
-          # Створюємо директорію проекту
-          sudo mkdir -p /opt/transcription-api
-          sudo chown ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} /opt/transcription-api
-          
-          # Переходимо в директорію
+          # Переходимо в директорію проекту
           cd /opt/transcription-api
           
-          # Завантажуємо файли через wget (оскільки репозиторій може бути приватним)
-          echo "📥 Завантаження файлів проекту..."
+          # Оновлюємо код з GitHub
+          git pull origin main
           
-          # Основні файли
-          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/main.py
-          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/requirements.txt
-          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/download_models.py
-          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/SETUP.md
+          # Встановлюємо залежності
+          sudo apt-get update -qq
+          sudo apt-get install -y python3 python3-pip python3-venv ffmpeg libsndfile1
           
-          # Створюємо директорію models
-          mkdir -p models
+          # Створюємо venv якщо немає
+          if [ ! -d "venv" ]; then
+            python3 -m venv venv
+          fi
           
-          # Файли з models
-          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/models/__init__.py -P models/
-          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/models/config.py -P models/
-          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/models/whisper_model.py -P models/
-          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/models/diarization.py -P models/
-          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/models/transcription_service.py -P models/
-          
-          # Створюємо директорії
-          mkdir -p static temp logs
-          
-          # Завантажуємо статичні файли
-          wget -q https://raw.githubusercontent.com/WarmingZ/transcription-api/main/static/index.html -P static/
-          
-          echo "✅ Файли завантажено успішно"
-          
-          # Встановлюємо Python та системні залежності
-          echo "📦 Встановлення системних залежностей..."
-          sudo apt-get update
-          sudo apt-get install -y python3 python3-pip python3-venv ffmpeg libsndfile1 libsndfile1-dev
-          
-          # Створюємо віртуальне середовище
-          echo "🐍 Створення віртуального середовища..."
-          python3 -m venv venv
+          # Активуємо venv та встановлюємо пакети
           source venv/bin/activate
+          pip install --upgrade pip -q
+          pip install -r requirements.txt -q
           
-          # Встановлюємо Python залежності
-          echo "📚 Встановлення Python залежностей..."
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          
-          # Завантажуємо моделі (якщо ще не завантажені)
-          echo "🤖 Завантаження моделей..."
+          # Завантажуємо моделі якщо немає
           if [ ! -d "models/faster-whisper-medium" ]; then
-            python3 download_models.py || echo "⚠️ Помилка завантаження моделей"
-          else
-            echo "✅ Моделі вже завантажені"
+            python3 download_models.py || echo "⚠️ Моделі вже завантажені"
           fi
           
-          # Створюємо systemd сервіс
-          echo "⚙️ Створення systemd сервісу..."
-          cat > /tmp/transcription-api.service << 'EOF'
-[Unit]
-Description=Transcription API Service
-After=network.target
-
-[Service]
-Type=simple
-User=deploy
-Group=deploy
-WorkingDirectory=/opt/transcription-api
-Environment=API_KEY=your-secret-api-key-here
-ExecStart=/opt/transcription-api/venv/bin/python main.py
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-          sudo mv /tmp/transcription-api.service /etc/systemd/system/transcription-api.service
-
-          # Перезавантажуємо systemd та вмикаємо сервіс
-          echo "🔄 Налаштування systemd сервісу..."
-          sudo systemctl daemon-reload
-          sudo systemctl enable transcription-api.service
+          # Зупиняємо старий процес
+          pkill -f "python3 main.py" || true
+          sleep 2
           
-          # Перезапускаємо сервіс
-          echo "🛑 Перезапуск сервісу..."
-          sudo systemctl restart transcription-api.service
+          # Запускаємо новий
+          nohup python3 main.py > logs/app.log 2>&1 &
+          echo $! > logs/app.pid
           
-          # Чекаємо запуску
-          echo "⏳ Очікування запуску сервісу..."
-          sleep 5
+          # Чекаємо
+          sleep 10
           
-          # Перевіряємо що сервіс активний
-          echo "🔍 Перевірка статусу systemd сервісу..."
-          if sudo systemctl is-active --quiet transcription-api.service; then
-            echo "✅ Сервіс transcription-api працює"
-          else
-            echo "❌ Сервіс transcription-api не стартував"
-            sudo journalctl -u transcription-api.service --no-pager -n 20
-            exit 1
-          fi
-          
-          # Показуємо статус для інформації
-          sudo systemctl status transcription-api.service --no-pager || true
-          
-          # Перевіряємо API
-          echo "🌐 Перевірка API..."
+          # Перевіряємо
           if curl -f http://localhost:8000/health; then
-            echo "✅ Сервіс запущений успішно!"
-            echo "🌐 API доступне за адресою: http://176.9.9.106:8000"
-            echo "📊 Веб-інтерфейс: http://176.9.9.106:8000"
-            echo "📖 Документація API: http://176.9.9.106:8000/docs"
-            echo "📋 Логи сервісу: sudo journalctl -u transcription-api.service -f"
-            echo "🔄 Управління сервісом:"
-            echo "   sudo systemctl start transcription-api.service"
-            echo "   sudo systemctl stop transcription-api.service"
-            echo "   sudo systemctl restart transcription-api.service"
-            echo "   sudo systemctl status transcription-api.service"
+            echo "✅ API працює!"
+            echo "🌐 http://176.9.9.106:8000"
           else
-            echo "❌ API не відповідає"
-            echo "📋 Останні логи systemd:"
-            sudo journalctl -u transcription-api.service --no-pager -n 20
+            echo "❌ Помилка запуску"
+            cat logs/app.log
             exit 1
-          fi          
-          echo "🎉 Деплой завершено успішно!"
-          echo "📝 Логи зберігаються в systemd journal"
-          echo "🔄 Управління сервісом:"
-          echo "   sudo systemctl restart transcription-api.service"
-          echo "   sudo systemctl status transcription-api.service"
-          echo "   sudo journalctl -u transcription-api.service -f"
-
+          fi
