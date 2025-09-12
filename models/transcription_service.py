@@ -110,7 +110,7 @@ class LocalTranscriptionService:
             logger.warning(f"Помилка орфографічної корекції: {e}")
             return text
     
-    def transcribe_simple(self, audio_path: str, language: str = "uk", use_parallel: bool = True) -> Dict[str, Any]:
+    def transcribe_simple(self, audio_path: str, language: str = "uk", use_parallel: bool = True, force_no_chunks: bool = True) -> Dict[str, Any]:
         """Швидка транскрипція з опціональним паралельним обробленням"""
         if not self.models_loaded:
             raise RuntimeError("Моделі не завантажені")
@@ -119,13 +119,13 @@ class LocalTranscriptionService:
         try:
             logger.info("Початок швидкої транскрипції з faster-whisper...")
             
-            # Використовуємо паралельну обробку для файлів довших за 30 секунд
+            # Використовуємо паралельну обробку для файлів довших за 2 хвилини (для швидкості)
             if use_parallel:
                 # Перевіряємо тривалість файлу
                 try:
                     import librosa
                     duration = librosa.get_duration(path=audio_path)
-                    if duration > 30:  # Знижено поріг для паралельної обробки
+                    if duration > 120:  # Поріг 2 хвилини для швидкої обробки
                         logger.info(f"Файл довжиною {duration:.1f}с - використовується паралельна обробка")
                         import asyncio
                         try:
@@ -139,8 +139,9 @@ class LocalTranscriptionService:
                             loop = asyncio.new_event_loop()
                             asyncio.set_event_loop(loop)
                             try:
+                                # Передаємо параметр для вимкнення чанків
                                 transcription_result = loop.run_until_complete(
-                                    self.whisper_model.transcribe_parallel(audio_path, language)
+                                    self.whisper_model.transcribe_parallel(audio_path, language, None, force_no_chunks)
                                 )
                             finally:
                                 loop.close()
@@ -164,7 +165,7 @@ class LocalTranscriptionService:
             logger.error(f"Помилка транскрипції: {e}")
             raise
     
-    def transcribe_with_diarization(self, audio_path: str, language: str = "uk", use_parallel: bool = True) -> Dict[str, Any]:
+    def transcribe_with_diarization(self, audio_path: str, language: str = "uk", use_parallel: bool = True, force_no_chunks: bool = True) -> Dict[str, Any]:
         """Транскрипція з діаризацією (Оператор/Клієнт) з паралельною обробкою"""
         if not self.models_loaded:
             raise RuntimeError("Моделі не завантажені")
@@ -178,6 +179,11 @@ class LocalTranscriptionService:
             logger.info(f"🔄 Конвертований файл: {processed_audio_path}")
             logger.info("Завантаження аудіо для діаризації...")
             audio, sr = self._load_audio_cached(processed_audio_path)
+            
+            # Діагностика аудіо
+            audio_duration = len(audio) / sr
+            logger.info(f"📊 Аудіо діагностика: тривалість={audio_duration:.2f}с, частота={sr}Hz, зразків={len(audio)}")
+            logger.info(f"📊 Перші 0.5с аудіо: min={audio[:int(0.5*sr)].min():.4f}, max={audio[:int(0.5*sr)].max():.4f}, rms={np.sqrt(np.mean(audio[:int(0.5*sr)]**2)):.4f}")
             
             # Робимо діаризацію з конвертованим файлом
             speaker_segments = self.diarization_service.process_audio(processed_audio_path)
@@ -202,6 +208,9 @@ class LocalTranscriptionService:
             speakers_stats = {}
             full_text = ""
             
+            # Сортуємо сегменти за часом для правильного порядку
+            processed_segments.sort(key=lambda x: x["start"])
+            
             for segment in processed_segments:
                 speaker = segment["speaker"]
                 if speaker not in speakers_stats:
@@ -217,7 +226,9 @@ class LocalTranscriptionService:
                 speakers_stats[speaker]["total_duration"] += segment["duration"]
                 speakers_stats[speaker]["last_segment"] = max(speakers_stats[speaker]["last_segment"], segment["end"])
                 
-                full_text += f"[{speaker}]: {segment['text']}\n"
+                # Додаємо час до тексту для кращого відстеження
+                time_info = f"[{segment['start']:.1f}s-{segment['end']:.1f}s]"
+                full_text += f"{time_info} [{speaker}]: {segment['text']}\n"
             
             result = {
                 "text": full_text.strip(),
@@ -397,8 +408,11 @@ class LocalTranscriptionService:
                     language=language,
                     beam_size=beam_size,
                     word_timestamps=True,
-                    vad_filter=vad_filter,
-                    vad_parameters=dict(min_silence_duration_ms=500) if vad_filter else None,
+                    vad_filter=True,  # Завжди увімкнено для кращого виявлення
+                    vad_parameters=dict(
+                        min_silence_duration_ms=300,  # Зменшено для кращого виявлення
+                        speech_pad_ms=100,  # Буфер навколо мовлення
+                    ),
                 )
                 
                 # Обробляємо результат

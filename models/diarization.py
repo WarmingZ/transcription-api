@@ -18,7 +18,7 @@ class SimpleDiarizationService:
         self.transcription_service = transcription_service  # Посилання на основний сервіс для кешування
         
     def _detect_speech_segments(self, audio_path: str, min_silence_duration: float = 0.5) -> List[Tuple[float, float]]:
-        """Виявляє сегменти мовлення за допомогою WebRTC VAD"""
+        """Виявляє сегменти мовлення за допомогою WebRTC VAD з покращеною логікою"""
         try:
             logger.info(f"Аналіз мовлення для {audio_path}...")
             
@@ -33,13 +33,17 @@ class SimpleDiarizationService:
             # Конвертуємо в int16 для WebRTC VAD
             audio_int16 = (audio * 32767).astype(np.int16)
             
-            # Параметри для VAD
-            frame_duration = 30  # мс
+            # Покращені параметри для VAD
+            frame_duration = 20  # мс (зменшено для кращої чутливості)
             frame_size = int(16000 * frame_duration / 1000)
             
             speech_segments = []
             current_segment_start = None
             in_speech = False
+            silence_frames = 0
+            min_silence_frames = int(min_silence_duration * 1000 / frame_duration)  # Кількість кадрів тиші
+            
+            logger.info(f"VAD параметри: frame_duration={frame_duration}ms, min_silence_frames={min_silence_frames}")
             
             # Обробляємо аудіо кадрами
             for i in range(0, len(audio_int16) - frame_size, frame_size):
@@ -49,22 +53,43 @@ class SimpleDiarizationService:
                 is_speech = self.vad.is_speech(frame.tobytes(), 16000)
                 timestamp = i / 16000.0  # час в секундах
                 
-                if is_speech and not in_speech:
-                    # Початок сегменту мовлення
-                    current_segment_start = timestamp
-                    in_speech = True
-                elif not is_speech and in_speech:
-                    # Кінець сегменту мовлення
-                    segment_duration = timestamp - current_segment_start
-                    if segment_duration >= 0.3:  # Мінімальна тривалість сегменту
-                        speech_segments.append((current_segment_start, timestamp))
-                    in_speech = False
+                if is_speech:
+                    if not in_speech:
+                        # Початок сегменту мовлення
+                        current_segment_start = timestamp
+                        in_speech = True
+                        silence_frames = 0
+                        logger.debug(f"Початок мовлення на {timestamp:.2f}с")
+                    else:
+                        silence_frames = 0  # Скидаємо лічильник тиші
+                else:
+                    if in_speech:
+                        silence_frames += 1
+                        # Кінець сегменту мовлення тільки після достатньої кількості кадрів тиші
+                        if silence_frames >= min_silence_frames:
+                            segment_duration = timestamp - current_segment_start
+                            # Зменшено мінімальну тривалість сегменту для кращого виявлення коротких фраз
+                            if segment_duration >= 0.1:  # Зменшено з 0.3 до 0.1 секунди
+                                speech_segments.append((current_segment_start, timestamp))
+                                logger.debug(f"Сегмент мовлення: {current_segment_start:.2f}с - {timestamp:.2f}с ({segment_duration:.2f}с)")
+                            else:
+                                logger.debug(f"Сегмент занадто короткий ({segment_duration:.2f}с), пропускаємо")
+                            in_speech = False
+                            silence_frames = 0
             
             # Обробляємо останній сегмент
             if in_speech and current_segment_start is not None:
-                speech_segments.append((current_segment_start, len(audio_int16) / 16000.0))
+                final_timestamp = len(audio_int16) / 16000.0
+                segment_duration = final_timestamp - current_segment_start
+                if segment_duration >= 0.1:  # Зменшено мінімальну тривалість
+                    speech_segments.append((current_segment_start, final_timestamp))
+                    logger.debug(f"Останній сегмент мовлення: {current_segment_start:.2f}с - {final_timestamp:.2f}с")
             
             logger.info(f"Знайдено {len(speech_segments)} сегментів мовлення")
+            if speech_segments:
+                logger.info(f"Перший сегмент: {speech_segments[0][0]:.2f}с - {speech_segments[0][1]:.2f}с")
+                logger.info(f"Останній сегмент: {speech_segments[-1][0]:.2f}с - {speech_segments[-1][1]:.2f}с")
+            
             return speech_segments
             
         except Exception as e:
@@ -72,13 +97,20 @@ class SimpleDiarizationService:
             return []
     
     def _merge_close_segments(self, segments: List[Tuple[float, float]], max_gap: float = 1.0) -> List[Tuple[float, float]]:
-        """Об'єднує близькі сегменти мовлення"""
+        """Об'єднує близькі сегменти мовлення з покращеною обробкою початку"""
         if not segments:
             return []
         
-        merged = [segments[0]]
+        # Додаємо буфер на початок файлу для кращого виявлення перших слів
+        processed_segments = []
+        for start, end in segments:
+            # Розширюємо початок сегменту на 0.2 секунди назад (але не менше 0)
+            extended_start = max(0, start - 0.2)
+            processed_segments.append((extended_start, end))
         
-        for current_start, current_end in segments[1:]:
+        merged = [processed_segments[0]]
+        
+        for current_start, current_end in processed_segments[1:]:
             last_start, last_end = merged[-1]
             
             # Якщо сегменти близько один до одного, об'єднуємо їх
@@ -87,6 +119,7 @@ class SimpleDiarizationService:
             else:
                 merged.append((current_start, current_end))
         
+        logger.info(f"Об'єднано {len(segments)} сегментів в {len(merged)} сегментів")
         return merged
     
     def assign_speakers(self, speech_segments: List[Tuple[float, float]]) -> List[Dict[str, Any]]:
