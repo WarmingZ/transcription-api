@@ -17,32 +17,40 @@ jobs:
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: ${{ secrets.SERVER_PORT }}
         script: |
-          echo "🚀 Збірка та запуск API..."
+          echo "🚀 Деплой API..."
           
-          # Переходимо в директорію проекту
+          # Встановлюємо sudo якщо немає
+          if ! command -v sudo &> /dev/null; then
+            apt-get update
+            apt-get install -y sudo
+          fi
+          
+          # Створюємо директорію проекту
+          sudo mkdir -p /opt/transcription-api
+          sudo chown ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} /opt/transcription-api
           cd /opt/transcription-api
           
-          # Оновлюємо код з GitHub
-          git pull origin main
+          # Клонуємо репозиторій якщо немає
+          if [ ! -d ".git" ]; then
+            git clone https://github.com/WarmingZ/transcription-api.git .
+          else
+            git pull origin main
+          fi
           
-          # Встановлюємо залежності
+          # Встановлюємо системні залежності
           sudo apt-get update -qq
           sudo apt-get install -y python3 python3-pip python3-venv ffmpeg libsndfile1
           
-          # Створюємо venv якщо немає
-          if [ ! -d "venv" ]; then
-            python3 -m venv venv
-          fi
-          
-          # Активуємо venv та встановлюємо пакети
+          # Створюємо venv
+          python3 -m venv venv
           source venv/bin/activate
+          
+          # Встановлюємо Python пакети
           pip install --upgrade pip -q
           pip install -r requirements.txt -q
           
-          # Завантажуємо моделі якщо немає
-          if [ ! -d "models/faster-whisper-medium" ]; then
-            python3 download_models.py || echo "⚠️ Моделі вже завантажені"
-          fi
+          # Завантажуємо моделі
+          python3 download_models.py || echo "⚠️ Моделі вже завантажені"
           
           # Зупиняємо старий процес
           pkill -f "python3 main.py" || true
