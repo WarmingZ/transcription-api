@@ -19,16 +19,12 @@ jobs:
         script: |
           echo "🚀 Деплой API..."
           
-          # Встановлюємо sudo якщо немає
-          if ! command -v sudo &> /dev/null; then
-            apt-get update
-            apt-get install -y sudo
-          fi
+          # Переходимо в домашню директорію
+          cd ~
           
           # Створюємо директорію проекту
-          sudo mkdir -p /opt/transcription-api
-          sudo chown ${{ secrets.SERVER_USER }}:${{ secrets.SERVER_USER }} /opt/transcription-api
-          cd /opt/transcription-api
+          mkdir -p transcription-api
+          cd transcription-api
           
           # Клонуємо репозиторій якщо немає
           if [ ! -d ".git" ]; then
@@ -37,9 +33,9 @@ jobs:
             git pull origin main
           fi
           
-          # Встановлюємо системні залежності
-          sudo apt-get update -qq
-          sudo apt-get install -y python3 python3-pip python3-venv ffmpeg libsndfile1
+          # Встановлюємо системні залежності (без sudo)
+          apt-get update -qq
+          apt-get install -y python3 python3-pip python3-venv ffmpeg libsndfile1
           
           # Створюємо venv
           python3 -m venv venv
@@ -67,6 +63,8 @@ jobs:
           if curl -f http://localhost:8000/health; then
             echo "✅ API працює!"
             echo "🌐 http://176.9.9.106:8000"
+            echo "📁 Проект в: ~/transcription-api"
+            echo "📋 Логи: ~/transcription-api/logs/app.log"
           else
             echo "❌ Помилка запуску"
             cat logs/app.log
