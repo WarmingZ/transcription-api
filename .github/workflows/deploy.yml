@@ -121,7 +121,7 @@ jobs:
           
           # Створюємо systemd сервіс
           echo "⚙️ Створення systemd сервісу..."
-          sudo tee /etc/systemd/system/transcription-api.service > /dev/null << EOF
+          cat > /tmp/transcription-api.service << 'EOF'
 [Unit]
 Description=Transcription API Service
 After=network.target
@@ -141,6 +141,7 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
+          sudo mv /tmp/transcription-api.service /etc/systemd/system/transcription-api.service
 
           # Перезавантажуємо systemd та вмикаємо сервіс
           echo "🔄 Налаштування systemd сервісу..."
@@ -186,11 +187,11 @@ EOF
             echo "📋 Останні логи systemd:"
             sudo journalctl -u transcription-api.service --no-pager -n 20
             exit 1
-          fi
-          
+          fi          
           echo "🎉 Деплой завершено успішно!"
           echo "📝 Логи зберігаються в systemd journal"
           echo "🔄 Управління сервісом:"
           echo "   sudo systemctl restart transcription-api.service"
           echo "   sudo systemctl status transcription-api.service"
           echo "   sudo journalctl -u transcription-api.service -f"
+
