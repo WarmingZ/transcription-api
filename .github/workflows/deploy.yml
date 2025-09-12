@@ -1,4 +1,4 @@
-name: Deploy Transcription API
+name: Deploy Ukrainian Transcription API
 
 on:
   push:
@@ -17,16 +17,18 @@ jobs:
         username: root
         key: ${{ secrets.SERVER_SSH_KEY }}
         port: ${{ secrets.SERVER_PORT }}
-        timeout: 900s
-        command_timeout: 600s
+        timeout: 1200s
+        command_timeout: 900s
         script: |
           echo "🚀 Деплой Ukrainian Transcription API"
           echo "======================================"
           
+          # Переходимо в робочу директорію
           cd /root
           mkdir -p transcription-api
           cd transcription-api
           
+          # Оновлюємо код
           if [ ! -d ".git" ]; then
             echo "📥 Клонування репозиторію..."
             git clone https://github.com/WarmingZ/transcription-api.git .
@@ -35,76 +37,131 @@ jobs:
             git pull origin main
           fi
           
+          # Встановлюємо системні залежності
           echo "📦 Встановлення системних залежностей..."
           apt-get update -qq
-          apt-get install -y curl git python3 python3-venv python3-dev python3-pip ffmpeg gfortran build-essential pkg-config
-
+          apt-get install -y \
+            curl \
+            git \
+            python3 \
+            python3-venv \
+            python3-dev \
+            python3-pip \
+            ffmpeg \
+            gfortran \
+            build-essential \
+            pkg-config \
+            libsndfile1-dev \
+            libasound2-dev \
+            portaudio19-dev
+          
+          # Створюємо віртуальне середовище
           echo "📦 Створення віртуального середовища..."
           if [ ! -d "venv" ]; then
             python3 -m venv venv
           fi
           
+          # Активуємо віртуальне середовище
           source venv/bin/activate
+          
+          # Оновлюємо pip та базові інструменти
+          echo "🔧 Оновлення pip та інструментів..."
           pip install --upgrade pip setuptools wheel
-
-          echo "📚 Встановлення Python залежностей..."
-          pip install numpy
-          pip install torch>=2.5.0 --index-url https://download.pytorch.org/whl/cpu
-          pip install torchaudio>=2.5.0 --index-url https://download.pytorch.org/whl/cpu
           
-          echo "📦 Встановлення SciPy та Librosa..."
-          pip install scipy --only-binary=all || pip install scipy
-          pip install librosa --only-binary=all || pip install librosa
+          # Встановлюємо Python залежності поетапно
+          echo "📚 Етап 1: Базові залежності..."
+          pip install numpy==1.24.3
+          pip install scipy==1.11.4
           
-          echo "📦 Встановлення інших залежностей..."
-          pip install webrtcvad
+          echo "📚 Етап 2: PyTorch..."
+          pip install torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+          
+          echo "📚 Етап 3: Аудіо обробка..."
+          pip install librosa==0.10.1
+          pip install webrtcvad==2.0.10
           pip install git+https://github.com/dofuuz/python-soxr.git
           
-          echo "🔧 Виправлення конфлікту setuptools для Python 3.13..."
-          pip install "setuptools<81" --force-reinstall
+          echo "📚 Етап 4: ML моделі..."
+          pip install faster-whisper==0.10.0
+          pip install speechbrain==0.5.16
+          pip install transformers==4.35.2
+          pip install scikit-learn==1.3.2
           
-          echo "📦 Встановлення faster-whisper..."
-          pip install faster-whisper[openvino]==0.10.0 || {
-            echo "⚠️ Основний спосіб не спрацював, спробуємо альтернативний..."
-            pip install faster-whisper==0.10.0
-          }
+          echo "📚 Етап 5: Додаткові залежності..."
+          pip install whisper-timestamped==1.14.2
+          pip install datasets==2.14.6
+          pip install accelerate==0.24.1
+          pip install language_tool_python==2.7.1
           
-          echo "📦 Встановлення решти залежностей..."
-          pip install -r requirements.txt --no-deps
-          pip install -r requirements.txt
+          echo "📚 Етап 6: Web фреймворк..."
+          pip install fastapi==0.104.1
+          pip install uvicorn[standard]==0.24.0
+          pip install python-multipart==0.0.6
+          pip install aiofiles==23.2.1
+          pip install httpx==0.25.2
+          pip install pydantic==2.5.0
+          pip install python-dotenv==1.0.0
+          pip install psutil==5.9.6
           
+          # Перевіряємо встановлені пакети
+          echo "🔍 Перевірка встановлених пакетів..."
+          pip list | grep -E "(torch|librosa|faster-whisper|webrtcvad|scipy|fastapi|speechbrain)"
+          
+          # Тестуємо критичні імпорти
+          echo "🧪 Тестування критичних імпортів..."
+          python -c "
+          try:
+              import torch; print('✅ torch')
+              import torchaudio; print('✅ torchaudio')
+              import faster_whisper; print('✅ faster-whisper')
+              import librosa; print('✅ librosa')
+              import webrtcvad; print('✅ webrtcvad')
+              import scipy; print('✅ scipy')
+              import fastapi; print('✅ fastapi')
+              import speechbrain; print('✅ speechbrain')
+              print('🎉 Всі критичні пакети працюють!')
+          except Exception as e:
+              print(f'❌ Помилка імпорту: {e}')
+              exit(1)
+          "
+          
+          # Завантажуємо моделі
           echo "🤖 Завантаження моделей..."
           if [ ! -d "models/faster-whisper-medium" ]; then
-            echo "📥 Завантаження моделей Whisper..."
+            echo "📥 Завантаження faster-whisper моделей..."
             python download_models.py
           else
             echo "✅ Моделі вже завантажені"
           fi
           
-          echo "🔍 Перевірка встановлених пакетів..."
-          pip list | grep -E "(torch|librosa|faster-whisper|webrtcvad|scipy|setuptools)"
+          # Створюємо необхідні директорії
+          mkdir -p logs temp static
           
-          echo "🧪 Тестування імпорту faster-whisper..."
-          python -c "import faster_whisper; print('✅ faster-whisper працює!')" || echo "❌ faster-whisper не працює!"
-          
-          mkdir -p logs temp
-          
+          # Зупиняємо старий процес
           echo "🛑 Зупинка старого процесу..."
           pkill -f "python main.py" || true
           sleep 3
           
+          # Запускаємо API
           echo "🚀 Запуск API..."
           nohup venv/bin/python main.py > logs/app.log 2>&1 &
           echo $! > logs/app.pid
           
-          echo "⏳ Очікування запуску (15 секунд)..."
-          sleep 15
+          # Очікуємо запуску
+          echo "⏳ Очікування запуску (20 секунд)..."
+          sleep 20
           
+          # Перевіряємо статус
           echo "🔍 Перевірка статусу API..."
           if curl -f http://localhost:8000/health; then
+            echo ""
             echo "✅ ДЕПЛОЙ УСПІШНИЙ!"
+            echo "🌐 API доступний на: http://localhost:8000"
+            echo "📖 Документація: http://localhost:8000/docs"
+            echo "🖥️ Веб-інтерфейс: http://localhost:8000/static/index.html"
           else
             echo "❌ ПОМИЛКА ЗАПУСКУ!"
-            tail -20 logs/app.log
+            echo "📋 Останні логи:"
+            tail -30 logs/app.log
             exit 1
           fi
