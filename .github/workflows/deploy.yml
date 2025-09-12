@@ -49,7 +49,8 @@ jobs:
 
           echo "📚 Встановлення Python залежностей..."
           pip install numpy
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch>=2.5.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install torchaudio>=2.5.0 --index-url https://download.pytorch.org/whl/cpu
           pip install git+https://github.com/dofuuz/python-soxr.git
           pip install -r requirements.txt
           
