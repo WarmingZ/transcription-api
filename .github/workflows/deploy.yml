@@ -39,33 +39,33 @@ jobs:
             git pull origin main
           fi
           
-          # Перевіряємо наявність Python
-          echo "🐍 Перевірка Python..."
-          python3 --version
-          
           # Встановлюємо системні залежності
           echo "📦 Встановлення системних залежностей..."
           apt-get update -qq
-          apt-get install -y curl python3-pip python3-venv git
+          apt-get install -y curl software-properties-common git python3.10 python3.10-venv python3.10-dev python3-pip
           
           # Створюємо віртуальне середовище
           echo "📦 Створення віртуального середовища..."
           if [ ! -d "venv" ]; then
-            python3 -m venv venv
+            python3.10 -m venv venv
           fi
           
           # Активуємо venv
           source venv/bin/activate
           
+          # Оновлюємо pip/setuptools/wheel
+          pip install --upgrade pip setuptools wheel
+          
           # Встановлюємо залежності
           echo "📚 Встановлення Python залежностей..."
-          pip install --upgrade pip
+          pip install numpy
+          pip install git+https://github.com/dofuuz/python-soxr.git
           pip install -r requirements.txt
           
           # Завантажуємо моделі
           echo "🤖 Завантаження моделей..."
           if [ ! -d "models/faster-whisper-medium" ]; then
-            python3 download_models.py
+            python download_models.py
           else
             echo "✅ Моделі вже завантажені"
           fi
@@ -75,12 +75,12 @@ jobs:
           
           # Зупиняємо старий процес
           echo "🛑 Зупинка старого процесу..."
-          pkill -f "python3 main.py" || true
+          pkill -f "python main.py" || true
           sleep 3
           
           # Запускаємо новий процес
           echo "🚀 Запуск API..."
-          nohup python3 main.py > logs/app.log 2>&1 &
+          nohup venv/bin/python main.py > logs/app.log 2>&1 &
           echo $! > logs/app.pid
           
           # Чекаємо запуску
@@ -100,8 +100,8 @@ jobs:
             echo ""
             echo "🔄 Управління сервісом:"
             echo "   cd /root/transcription-api"
-            echo "   pkill -f 'python3 main.py'  # зупинити"
-            echo "   nohup python3 main.py > logs/app.log 2>&1 &  # запустити"
+            echo "   pkill -f 'python main.py'  # зупинити"
+            echo "   nohup venv/bin/python main.py > logs/app.log 2>&1 &  # запустити"
             echo ""
           else
             echo "❌ ПОМИЛКА ЗАПУСКУ!"
@@ -109,7 +109,7 @@ jobs:
             tail -20 logs/app.log
             echo ""
             echo "🔧 Діагностика:"
-            echo "   ps aux | grep python3"
+            echo "   ps aux | grep python"
             echo "   netstat -tlnp | grep 8000"
             exit 1
           fi
