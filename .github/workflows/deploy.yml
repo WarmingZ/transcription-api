@@ -126,7 +126,7 @@ jobs:
 Description=Transcription API Service
 After=network.target
 
-[Service]
+[Service] 
 Type=simple
 User=${{ secrets.SERVER_USER }}
 Group=${{ secrets.SERVER_USER }}
