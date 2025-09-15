@@ -24,19 +24,19 @@ except ImportError:
     LANGUAGE_TOOL_AVAILABLE = False
     logger.warning("LanguageTool недоступний - орфографічна корекція вимкнена")
 
-# Константи для оптимізації (налаштовано для сервера 8GB RAM + 4 CPU AMD)
-DEFAULT_CHUNK_SIZE = 60  # секунд (оптимізовано для small моделі)
-MAX_WORKERS = 2  # Оптимізовано для стабільності (50% ядер)
-CACHE_MAX_SIZE = 3  # Оптимізовано для small моделі
+# Константи для оптимізації (налаштовано для сервера 14GB RAM + 8 CPU)
+DEFAULT_CHUNK_SIZE = 90  # секунд (збільшено для кращого використання CPU)
+MAX_WORKERS = 6  # Оптимізовано для 8 CPU (75% ядер)
+CACHE_MAX_SIZE = 5  # Збільшено для 14GB RAM
 
 # GPU оптимізації
-GPU_CHUNK_SIZE = 120  # секунд (більші чанки для GPU)
-GPU_MAX_WORKERS = 4  # Більше процесів для GPU
-GPU_CACHE_MAX_SIZE = 5  # Більший кеш для GPU
+GPU_CHUNK_SIZE = 150  # секунд (більші чанки для GPU)
+GPU_MAX_WORKERS = 6  # Більше процесів для GPU
+GPU_CACHE_MAX_SIZE = 7  # Більший кеш для GPU
 
 # Налаштування діаризації
 ENABLE_DIARIZATION = True  # Можна відключити для економії ресурсів
-DIARIZATION_MAX_WORKERS = 2  # Обмежена кількість процесів для діаризації
+DIARIZATION_MAX_WORKERS = 4  # Збільшено для 8 CPU
 
 # Оптимізовані параметри для швидкості
 SPEED_OPTIMIZED_BEAM_SIZE = 1  # Завжди 1 для максимальної швидкості

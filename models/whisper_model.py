@@ -42,7 +42,7 @@ class LocalWhisperModel:
             # Оптимізовані налаштування з quantized моделями (рекомендація ChatGPT)
             if self.device == "cpu":
                 compute_type = CPU_COMPUTE_TYPE  # int8 для CPU
-                cpu_threads = min(4, os.cpu_count() or 4)
+                cpu_threads = min(8, os.cpu_count() or 8)  # Використовуємо більше потоків для 8 CPU
                 # Використовуємо quantized модель (compute_type="int8" автоматично quantized)
                 model_name = self.model_size
                 logger.info(f"🚀 CPU оптимізація: model={model_name} (quantized), compute_type={compute_type}, cpu_threads={cpu_threads}")
@@ -64,7 +64,7 @@ class LocalWhisperModel:
                     device=self.device, 
                     compute_type=compute_type,
                     cpu_threads=cpu_threads,
-                    num_workers=1,
+                    num_workers=2 if self.device == "cpu" else 1,  # Більше воркерів для CPU
                     download_root=str(MODELS_DIR)  # Завантажуємо в локальну директорію
                 )
             except Exception as e:
@@ -77,7 +77,7 @@ class LocalWhisperModel:
                         device=self.device, 
                         compute_type="float16",
                         cpu_threads=cpu_threads,
-                        num_workers=1,
+                        num_workers=2 if self.device == "cpu" else 1,
                         download_root=str(MODELS_DIR)
                     )
                 else:

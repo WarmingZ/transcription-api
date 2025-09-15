@@ -73,7 +73,10 @@ class LocalTranscriptionService:
                             model_size = "small"  # Fallback для GPU
                     else:
                         # Для CPU використовуємо quantized моделі (рекомендація ChatGPT)
-                        if memory_gb >= 8 and cpu_count >= 4:
+                        if memory_gb >= 12 and cpu_count >= 8:
+                            model_size = "medium"  # medium + int8 = quantized - оптимально для потужного сервера
+                            logger.info(f"🚀 Потужний сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується medium модель (quantized)")
+                        elif memory_gb >= 8 and cpu_count >= 6:
                             model_size = "small"  # small + int8 = quantized - оптимально для CPU
                             logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується small модель (quantized)")
                         elif memory_gb >= 6:
