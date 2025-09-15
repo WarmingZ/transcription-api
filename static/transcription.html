@@ -448,7 +448,7 @@
 
             const language = document.getElementById('language').value;
             const modelSize = document.getElementById('modelSize').value;
-            const useDiarization = document.getElementById('useDiarization').checked;
+            const useDiarization = false; // Діаризація відключена
 
             showLoading('transcriptionLoading');
             hideError();
@@ -460,8 +460,7 @@
             formData.append('use_diarization', useDiarization);
 
             try {
-                const endpoint = useDiarization ? '/transcribe-with-diarization' : '/transcribe';
-                const response = await fetch(endpoint, {
+                const response = await fetch('/transcribe', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${apiKey}`
@@ -503,14 +502,8 @@
                     const segmentDiv = document.createElement('div');
                     segmentDiv.className = 'segment';
                     
-                    let speakerLabel = '';
-                    if (segment.speaker) {
-                        const speakerClass = segment.speaker === 'Оператор' ? 'speaker-operator' : 'speaker-client';
-                        speakerLabel = `<span class="speaker-label ${speakerClass}">${segment.speaker}</span>`;
-                    }
-                    
                     segmentDiv.innerHTML = `
-                        <div class="segment-header">${speakerLabel}Сегмент ${index + 1}</div>
+                        <div class="segment-header">Сегмент ${index + 1}</div>
                         <div class="segment-time">${formatTime(segment.start)} - ${formatTime(segment.end)}</div>
                         <div>${segment.text}</div>
                     `;
