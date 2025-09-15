@@ -12,7 +12,6 @@ import soundfile as sf
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
 import time
-import multiprocessing as mp
 
 from .config import (
     MODELS_DIR, logger, SPEED_OPTIMIZED_BEAM_SIZE, SPEED_OPTIMIZED_VAD,
@@ -42,18 +41,23 @@ class LocalWhisperModel:
         try:
             from faster_whisper import WhisperModel
             
-            # Оптимізовані налаштування для максимальної швидкості
+            # Оптимізовані налаштування для сервера 8GB RAM + 4 CPU AMD
             if self.device == "cpu":
-                # Для CPU: спробуємо int8_float16, fallback на int8
+                # Для CPU: оптимізовано для вашого сервера
                 try:
                     import psutil
                     memory_gb = psutil.virtual_memory().total / (1024**3)
-                    if memory_gb >= 8:
+                    cpu_count = psutil.cpu_count()
+                    
+                    if memory_gb >= 8 and cpu_count >= 4:
+                        compute_type = "int8_float16"  # Оптимально для вашого сервера
+                        logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU AMD - використовується int8_float16 (оптимально)")
+                    elif memory_gb >= 8:
                         compute_type = "int8_float16"  # Швидше ніж int8
-                        logger.info("Спроба використати int8_float16 для CPU (швидше)")
+                        logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується int8_float16 (швидше)")
                     else:
                         compute_type = "int8"  # Економніше по пам'яті
-                        logger.info("Використовується int8 для CPU (економно)")
+                        logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується int8 (економно)")
                 except:
                     compute_type = "int8"
             else:
@@ -104,10 +108,15 @@ class LocalWhisperModel:
             memory_gb = psutil.virtual_memory().total / (1024**3)
             cpu_count = psutil.cpu_count()
             
-            # Визначаємо розмір моделі на основі ресурсів (тільки small та medium)
-            if memory_gb >= 4 and cpu_count >= 2:
+            # Визначаємо розмір моделі на основі ресурсів (оптимізовано для сервера 8GB RAM + 4 CPU AMD)
+            if memory_gb >= 8 and cpu_count >= 4:
+                logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU AMD - оптимальна конфігурація для medium моделі")
+                return "medium"
+            elif memory_gb >= 4 and cpu_count >= 2:
+                logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується medium модель")
                 return "medium"
             else:
+                logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується small модель")
                 return "small"
         except Exception as e:
             logger.warning(f"Помилка визначення ресурсів: {e}, використовується small модель")
@@ -131,7 +140,11 @@ class LocalWhisperModel:
                 language=language,
                 beam_size=1,  # Мінімальний для швидкості
                 word_timestamps=False,  # Вимкнено для швидкості
-                vad_filter=False,  # Вимкнено для швидкості
+                vad_filter=True,  # УВІМКНЕНО для правильного виявлення початку мовлення
+                vad_parameters=dict(
+                    min_silence_duration_ms=500,  # Мінімальна тривалість тиші
+                    speech_pad_ms=200,  # Буфер навколо мовлення
+                ),
                 temperature=0.0,  # Детерміністичний результат
                 best_of=1,  # Тільки один варіант
                 condition_on_previous_text=False,  # Вимкнено для швидкості
@@ -208,8 +221,8 @@ class LocalWhisperModel:
                 # Завантажуємо аудіо файл (завжди моно) з покращеними параметрами
                 audio, sr = librosa.load(audio_path, sr=None, mono=True, offset=0.0)
             
-            # Додаємо невеликий буфер тиші на початок для кращого виявлення перших слів
-            silence_buffer = np.zeros(int(0.1 * sr))  # 0.1 секунди тиші
+            # Додаємо мінімальний буфер тиші на початок для кращого виявлення перших слів
+            silence_buffer = np.zeros(int(0.05 * sr))  # 0.05 секунди тиші (зменшено)
             audio = np.concatenate([silence_buffer, audio])
             
             # Завжди конвертуємо в 16kHz для Whisper
@@ -370,7 +383,11 @@ class LocalWhisperModel:
                 language=language,
                 beam_size=SPEED_OPTIMIZED_BEAM_SIZE,  # Завжди 1
                 word_timestamps=True,
-                vad_filter=SPEED_OPTIMIZED_VAD,  # Завжди False
+                vad_filter=True,  # УВІМКНЕНО для правильного виявлення початку мовлення
+                vad_parameters=dict(
+                    min_silence_duration_ms=300,  # Мінімальна тривалість тиші
+                    speech_pad_ms=100,  # Буфер навколо мовлення
+                ),
                 temperature=0.0,  # Детерміністичний результат
                 best_of=1,  # Тільки один варіант
             )
@@ -422,10 +439,11 @@ class LocalWhisperModel:
                 logger.info("✅ Тільки один чанк, використовується звичайна транскрипція")
                 return self.transcribe(audio_path, language)
             
-            # Оптимізоване визначення кількості процесів для 4-ядерного сервера
+            # Оптимізоване визначення кількості процесів для сервера 8GB RAM + 4 CPU AMD
             import os
-            max_workers = min(MAX_WORKERS, len(chunk_data), 2)  # Обмежуємо до 2 процесів для стабільності
-            logger.info(f"🚀 Паралельна транскрипція {len(chunk_data)} сегментів з {max_workers} процесами...")
+            cpu_count = os.cpu_count()
+            max_workers = min(MAX_WORKERS, len(chunk_data), cpu_count)  # Оптимізовано для вашого сервера
+            logger.info(f"🚀 Сервер {cpu_count} CPU AMD - паралельна транскрипція {len(chunk_data)} сегментів з {max_workers} процесами...")
             logger.info(f"⚡ Очікуване прискорення: ~{max_workers}x швидше ніж послідовна обробка")
             
             # Використовуємо ProcessPoolExecutor для CPU-bound завдань
@@ -512,13 +530,20 @@ class LocalWhisperModel:
             from faster_whisper import WhisperModel
             import torch
             
-            # Визначаємо пристрій та compute_type
+            # Визначаємо пристрій та compute_type (оптимізовано для сервера 8GB RAM + 4 CPU AMD)
             device = "cuda" if torch.cuda.is_available() else "cpu"
             if device == "cpu":
                 try:
                     import psutil
                     memory_gb = psutil.virtual_memory().total / (1024**3)
-                    compute_type = "int8_float16" if memory_gb >= 8 else "int8"
+                    cpu_count = psutil.cpu_count()
+                    
+                    if memory_gb >= 8 and cpu_count >= 4:
+                        compute_type = "int8_float16"  # Оптимально для вашого сервера
+                    elif memory_gb >= 8:
+                        compute_type = "int8_float16"  # Швидше ніж int8
+                    else:
+                        compute_type = "int8"  # Економніше по пам'яті
                 except:
                     compute_type = "int8"
             else:

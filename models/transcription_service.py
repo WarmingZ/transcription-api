@@ -10,10 +10,9 @@ import torch
 import librosa
 import soundfile as sf
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import time
 
-from .config import logger, LANGUAGE_TOOL_AVAILABLE, SPEED_OPTIMIZED_CHUNK_SIZES, SUPPORTED_MODELS
+from .config import logger, LANGUAGE_TOOL_AVAILABLE, SPEED_OPTIMIZED_CHUNK_SIZES, SUPPORTED_MODELS, ENABLE_DIARIZATION, DIARIZATION_MAX_WORKERS
 from .whisper_model import LocalWhisperModel
 from .diarization import SimpleDiarizationService
 
@@ -49,16 +48,24 @@ class LocalTranscriptionService:
             device = "cuda" if torch.cuda.is_available() else "cpu"
             logger.info(f"Використовується пристрій: {device}")
             
-            # Визначаємо розмір моделі (оптимізовано для української мови)
+            # Визначаємо розмір моделі (оптимізовано для сервера 8GB RAM + 4 CPU AMD)
             if model_size == "auto":
                 # Для української мови використовуємо звичайні моделі (distil тільки для англійської)
                 try:
                     import psutil
                     memory_gb = psutil.virtual_memory().total / (1024**3)
-                    if memory_gb >= 6:
+                    cpu_count = psutil.cpu_count()
+                    
+                    # Оптимізовано для сервера 8GB RAM + 4 CPU AMD
+                    if memory_gb >= 8 and cpu_count >= 4:
+                        model_size = "medium"  # Оптимальна якість для вашого сервера
+                        logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується medium модель")
+                    elif memory_gb >= 6:
                         model_size = "medium"  # Добра якість для української
+                        logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується medium модель")
                     else:
                         model_size = "small"  # Базовий варіант
+                        logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується small модель")
                 except:
                     model_size = "small"
             elif model_size not in SUPPORTED_MODELS:
@@ -72,8 +79,8 @@ class LocalTranscriptionService:
             if not self.whisper_model.load_model():
                 return False
             
-            # Ініціалізуємо сервіс діаризації з посиланням на кеш
-            self.diarization_service = SimpleDiarizationService(self)
+            # Діаризація буде ініціалізована тільки при потребі (lazy loading)
+            # self.diarization_service = SimpleDiarizationService(self)  # Видалено для оптимізації
             
             self.models_loaded = True
             logger.info("Всі моделі завантажені успішно")
@@ -170,6 +177,15 @@ class LocalTranscriptionService:
         if not self.models_loaded:
             raise RuntimeError("Моделі не завантажені")
         
+        # Lazy loading діаризації - ініціалізуємо тільки при потребі
+        if not ENABLE_DIARIZATION:
+            logger.warning("⚠️ Діаризація відключена в конфігурації")
+            raise RuntimeError("Діаризація відключена в конфігурації")
+        
+        if self.diarization_service is None:
+            logger.info("🔧 Ініціалізація діаризації (lazy loading)...")
+            self.diarization_service = SimpleDiarizationService(self)
+        
         start_time = time.time()
         try:
             logger.info("Початок транскрипції з діаризацією...")
@@ -256,9 +272,11 @@ class LocalTranscriptionService:
             from concurrent.futures import ProcessPoolExecutor
             import os
             
-            # Динамічне визначення кількості процесів
-            max_workers = min(os.cpu_count(), len(speaker_segments), 6)  # Обмежуємо для стабільності
-            logger.info(f"Використовується {max_workers} процесів для паралельної діаризації")
+            # Динамічне визначення кількості процесів (оптимізовано для сервера 8GB RAM + 4 CPU AMD)
+            cpu_count = os.cpu_count()
+            # Обмежуємо кількість процесів для діаризації (менше навантаження)
+            max_workers = min(DIARIZATION_MAX_WORKERS, len(speaker_segments), cpu_count // 2)  # Тільки 50% CPU для діаризації
+            logger.info(f"🚀 Сервер {cpu_count} CPU AMD - використовується {max_workers} процесів для паралельної діаризації (оптимізовано)")
             
             # Створюємо завдання для кожного сегменту
             with ProcessPoolExecutor(max_workers=max_workers) as executor:
@@ -308,13 +326,20 @@ class LocalTranscriptionService:
             end_sample = int(end_time * sr)
             segment_audio = audio[start_sample:end_sample]
             
-            # Визначаємо пристрій та compute_type
+            # Визначаємо пристрій та compute_type (оптимізовано для сервера 8GB RAM + 4 CPU AMD)
             device = "cuda" if torch.cuda.is_available() else "cpu"
             if device == "cpu":
                 try:
                     import psutil
                     memory_gb = psutil.virtual_memory().total / (1024**3)
-                    compute_type = "int8_float16" if memory_gb >= 8 else "int8"
+                    cpu_count = psutil.cpu_count()
+                    
+                    if memory_gb >= 8 and cpu_count >= 4:
+                        compute_type = "int8_float16"  # Оптимально для вашого сервера
+                    elif memory_gb >= 8:
+                        compute_type = "int8_float16"  # Швидше ніж int8
+                    else:
+                        compute_type = "int8"  # Економніше по пам'яті
                 except:
                     compute_type = "int8"
             else:
@@ -329,7 +354,11 @@ class LocalTranscriptionService:
                 language=language,
                 beam_size=1,  # Максимальна швидкість
                 word_timestamps=True,
-                vad_filter=False,  # Вимкнено для швидкості
+                vad_filter=True,  # УВІМКНЕНО для правильного виявлення початку мовлення
+                vad_parameters=dict(
+                    min_silence_duration_ms=300,  # Мінімальна тривалість тиші
+                    speech_pad_ms=100,  # Буфер навколо мовлення
+                ),
                 temperature=0.0,
                 best_of=1,
             )
@@ -410,8 +439,8 @@ class LocalTranscriptionService:
                     word_timestamps=True,
                     vad_filter=True,  # Завжди увімкнено для кращого виявлення
                     vad_parameters=dict(
-                        min_silence_duration_ms=300,  # Зменшено для кращого виявлення
-                        speech_pad_ms=100,  # Буфер навколо мовлення
+                        min_silence_duration_ms=200,  # Зменшено для кращого виявлення коротких пауз
+                        speech_pad_ms=150,  # Буфер навколо мовлення
                     ),
                 )
                 

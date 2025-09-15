@@ -1,0 +1,67 @@
+{
+  "2OqDFTkg5Wa4uLw015EqzGx2BRHhBkUfG89iOsXX1P8": {
+    "name": "default",
+    "description": "Default API Key",
+    "created_at": "2025-09-13T14:57:52.180902",
+    "last_used": "2025-09-13T14:58:20.189081",
+    "usage_count": 1,
+    "is_active": true,
+    "permissions": [
+      "transcribe",
+      "transcribe_with_diarization"
+    ],
+    "is_admin": false
+  },
+  "6O_STdR2TulZcpTEnb5YmWOfS3FbD1BYo9y8bdNcLT8": {
+    "name": "osd",
+    "description": "For OSD",
+    "created_at": "2025-09-13T14:58:09.278366",
+    "last_used": null,
+    "usage_count": 0,
+    "is_active": true,
+    "permissions": [
+      "transcribe",
+      "transcribe_with_diarization"
+    ],
+    "is_admin": false
+  },
+  "ixkgFw3VSopDZlGDYD4kxVBKmo5KrXt8NwpIBxKM9qk": {
+    "name": "test_key",
+    "description": "Тестовий ключ",
+    "created_at": "2025-09-13T14:58:20.188882",
+    "last_used": "2025-09-13T14:58:20.189085",
+    "usage_count": 1,
+    "is_active": true,
+    "permissions": [
+      "transcribe",
+      "transcribe_with_diarization"
+    ],
+    "is_admin": false
+  },
+  "1uq7YWLz-nFDbC9KQP6zMLN7ROPIleqZSuCypGEUaGI": {
+    "name": "admin",
+    "description": "",
+    "created_at": "2025-09-13T15:01:43.785767",
+    "last_used": "2025-09-15T09:46:22.170953",
+    "usage_count": 6,
+    "is_active": true,
+    "permissions": [
+      "transcribe",
+      "transcribe_with_diarization"
+    ],
+    "is_admin": true
+  },
+  "M0K5bYbchl6YtsMBDypzrgk8PoFkE2I3Le_9GnzPv_U": {
+    "name": "TETSTWO",
+    "description": "Тестовий ключ",
+    "created_at": "2025-09-15T09:46:22.173399",
+    "last_used": null,
+    "usage_count": 0,
+    "is_active": true,
+    "permissions": [
+      "transcribe",
+      "transcribe_with_diarization"
+    ],
+    "is_admin": false
+  }
+}

@@ -14,8 +14,10 @@ class SimpleDiarizationService:
     """Простий сервіс діаризації з чергуванням ролей Оператор/Клієнт"""
     
     def __init__(self, transcription_service=None):
-        self.vad = webrtcvad.Vad(2)  # Агресивність VAD (0-3, де 3 найагресивніша)
+        # Оптимізовані налаштування VAD для сервера 8GB RAM + 4 CPU AMD
+        self.vad = webrtcvad.Vad(1)  # Зменшена агресивність для меншого навантаження
         self.transcription_service = transcription_service  # Посилання на основний сервіс для кешування
+        logger.info("🔧 Діаризація ініціалізована з оптимізованими налаштуваннями")
         
     def _detect_speech_segments(self, audio_path: str, min_silence_duration: float = 0.5) -> List[Tuple[float, float]]:
         """Виявляє сегменти мовлення за допомогою WebRTC VAD з покращеною логікою"""
@@ -33,8 +35,8 @@ class SimpleDiarizationService:
             # Конвертуємо в int16 для WebRTC VAD
             audio_int16 = (audio * 32767).astype(np.int16)
             
-            # Покращені параметри для VAD
-            frame_duration = 20  # мс (зменшено для кращої чутливості)
+            # Оптимізовані параметри для VAD (менше навантаження на сервер)
+            frame_duration = 30  # мс (збільшено для меншого навантаження)
             frame_size = int(16000 * frame_duration / 1000)
             
             speech_segments = []
@@ -69,7 +71,7 @@ class SimpleDiarizationService:
                         if silence_frames >= min_silence_frames:
                             segment_duration = timestamp - current_segment_start
                             # Зменшено мінімальну тривалість сегменту для кращого виявлення коротких фраз
-                            if segment_duration >= 0.1:  # Зменшено з 0.3 до 0.1 секунди
+                            if segment_duration >= 0.05:  # Зменшено з 0.1 до 0.05 секунди
                                 speech_segments.append((current_segment_start, timestamp))
                                 logger.debug(f"Сегмент мовлення: {current_segment_start:.2f}с - {timestamp:.2f}с ({segment_duration:.2f}с)")
                             else:
@@ -81,7 +83,7 @@ class SimpleDiarizationService:
             if in_speech and current_segment_start is not None:
                 final_timestamp = len(audio_int16) / 16000.0
                 segment_duration = final_timestamp - current_segment_start
-                if segment_duration >= 0.1:  # Зменшено мінімальну тривалість
+                if segment_duration >= 0.05:  # Зменшено мінімальну тривалість
                     speech_segments.append((current_segment_start, final_timestamp))
                     logger.debug(f"Останній сегмент мовлення: {current_segment_start:.2f}с - {final_timestamp:.2f}с")
             
@@ -101,11 +103,11 @@ class SimpleDiarizationService:
         if not segments:
             return []
         
-        # Додаємо буфер на початок файлу для кращого виявлення перших слів
+        # Додаємо мінімальний буфер на початок файлу для кращого виявлення перших слів
         processed_segments = []
         for start, end in segments:
-            # Розширюємо початок сегменту на 0.2 секунди назад (але не менше 0)
-            extended_start = max(0, start - 0.2)
+            # Розширюємо початок сегменту на 0.1 секунди назад (але не менше 0) - зменшено
+            extended_start = max(0, start - 0.1)
             processed_segments.append((extended_start, end))
         
         merged = [processed_segments[0]]
