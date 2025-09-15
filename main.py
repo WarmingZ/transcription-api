@@ -246,7 +246,7 @@ async def transcribe_audio_file(
     - file: Завантажений файл (аудіо або відео)
     - url: URL посилання на файл
     - language: Мова транскрипції (за замовчуванням 'uk' для української)
-    - model_size: Розмір моделі Whisper (small, medium, auto)
+    - model_size: Розмір моделі Whisper (tiny, base, small, medium, large, auto)
     - use_diarization: Використовувати діаризацію Оператор/Клієнт (True/False)
     """
     
@@ -257,8 +257,8 @@ async def transcribe_audio_file(
         raise HTTPException(status_code=400, detail="Надайте або файл, або URL, але не обидва")
     
     # Валідація розміру моделі
-    if model_size not in ["small", "medium", "auto"]:
-        raise HTTPException(status_code=400, detail="Розмір моделі повинен бути: small, medium або auto")
+    if model_size not in ["tiny", "base", "small", "medium", "large", "auto"]:
+        raise HTTPException(status_code=400, detail="Розмір моделі повинен бути: tiny, base, small, medium, large або auto")
     
     temp_file_path = None
     
@@ -317,7 +317,7 @@ async def transcribe_with_diarization(
     - file: Завантажений файл (аудіо або відео)
     - url: URL посилання на файл
     - language: Мова транскрипції (за замовчуванням 'uk' для української)
-    - model_size: Розмір моделі Whisper (small, medium, auto)
+    - model_size: Розмір моделі Whisper (tiny, base, small, medium, large, auto)
     """
     
     if not file and not url:
@@ -327,8 +327,8 @@ async def transcribe_with_diarization(
         raise HTTPException(status_code=400, detail="Надайте або файл, або URL, але не обидва")
     
     # Валідація розміру моделі
-    if model_size not in ["small", "medium", "auto"]:
-        raise HTTPException(status_code=400, detail="Розмір моделі повинен бути: small, medium або auto")
+    if model_size not in ["tiny", "base", "small", "medium", "large", "auto"]:
+        raise HTTPException(status_code=400, detail="Розмір моделі повинен бути: tiny, base, small, medium, large або auto")
     
     temp_file_path = None
     
