@@ -73,18 +73,18 @@ class LocalTranscriptionService:
                         except:
                             model_size = "small"  # Fallback для GPU
                     else:
-                        # Для CPU використовуємо small модель
+                        # Для CPU використовуємо швидшу модель
                         if memory_gb >= 8 and cpu_count >= 4:
-                            model_size = "small"  # Оптимально для стабільності на 8GB RAM
-                            logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується small модель (оптимально)")
+                            model_size = "base"  # Швидше для CPU
+                            logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується base модель (швидше)")
                         elif memory_gb >= 6:
-                            model_size = "small"  # Безпечно для 6GB+ RAM
-                            logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується small модель")
+                            model_size = "base"  # Швидше для CPU
+                            logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується base модель")
                         else:
                             model_size = "base"  # Для менших серверів
                             logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується base модель")
                 except:
-                    model_size = "small"
+                    model_size = "base"
             elif model_size not in SUPPORTED_MODELS:
                 # Якщо вказано некоректний розмір, використовуємо small
                 logger.warning(f"Невідомий розмір моделі: {model_size}, використовується small")
@@ -143,14 +143,19 @@ class LocalTranscriptionService:
         try:
             logger.info("Початок швидкої транскрипції з faster-whisper...")
             
-            # Використовуємо паралельну обробку для файлів довших за 2 хвилини (для швидкості)
+            # Використовуємо паралельну обробку лише якщо це реально дає виграш
             if use_parallel:
-                # Перевіряємо тривалість файлу
                 try:
                     import librosa
                     duration = librosa.get_duration(path=audio_path)
-                    if duration > 60:  # Поріг 1 хвилина для швидкої обробки
-                        logger.info(f"Файл довжиною {duration:.1f}с - використовується паралельна обробка")
+                    
+                    # CPU → послідовна обробка (завантаження моделі у кожному процесі дуже повільне)
+                    if self.whisper_model.device == "cpu" or duration <= 300:
+                        logger.info(f"CPU або короткий файл (≤ 5 хв) → послідовна обробка")
+                        transcription_result = self.whisper_model.transcribe(audio_path, language)
+                    else:
+                        # GPU і довгі файли → паралельно
+                        logger.info(f"GPU і довгий файл ({duration:.1f}с) → паралельна обробка")
                         import asyncio
                         try:
                             # Перевіряємо чи вже є запущений event loop
@@ -169,9 +174,6 @@ class LocalTranscriptionService:
                                 )
                             finally:
                                 loop.close()
-                    else:
-                        logger.info(f"Файл короткий ({duration:.1f}с) - використовується послідовна обробка")
-                        transcription_result = self.whisper_model.transcribe(audio_path, language)
                 except Exception as e:
                     logger.warning(f"Помилка визначення тривалості: {e}, використовується послідовна обробка")
                     transcription_result = self.whisper_model.transcribe(audio_path, language)
@@ -363,7 +365,7 @@ class LocalTranscriptionService:
                 compute_type = "float16"
             
             # Завантажуємо модель в worker процесі
-            model = WhisperModel("small", device=device, compute_type=compute_type)
+            model = WhisperModel("base", device=device, compute_type=compute_type)
             
             # Транскрибуємо сегмент з оптимізованими параметрами
             segments, info = model.transcribe(

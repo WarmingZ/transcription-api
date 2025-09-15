@@ -41,28 +41,15 @@ class LocalWhisperModel:
         try:
             from faster_whisper import WhisperModel
             
-            # Оптимізовані налаштування для сервера 8GB RAM + 4 CPU AMD
+            # Оптимізовані налаштування для CPU (стабільний і швидкий варіант)
             if self.device == "cpu":
-                # Для CPU: оптимізовано для вашого сервера
-                try:
-                    import psutil
-                    memory_gb = psutil.virtual_memory().total / (1024**3)
-                    cpu_count = psutil.cpu_count()
-                    
-                    if memory_gb >= 8 and cpu_count >= 4:
-                        compute_type = "int8_float16"  # Оптимально для вашого сервера
-                        logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU AMD - використовується int8_float16 (оптимально)")
-                    elif memory_gb >= 8:
-                        compute_type = "int8_float16"  # Швидше ніж int8
-                        logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується int8_float16 (швидше)")
-                    else:
-                        compute_type = "int8"  # Економніше по пам'яті
-                        logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується int8 (економно)")
-                except:
-                    compute_type = "int8"
+                compute_type = "int8"  # стабільний і швидкий варіант на CPU
+                cpu_threads = min(4, os.cpu_count() or 4)
+                logger.info(f"🚀 CPU оптимізація: compute_type=int8, cpu_threads={cpu_threads}")
             else:
                 # Для GPU: завжди float16
                 compute_type = "float16"
+                cpu_threads = 1
                 logger.info("Використовується float16 для GPU")
             
             # Шлях до моделі в локальній директорії проекту
@@ -75,6 +62,8 @@ class LocalWhisperModel:
                     self.model_size, 
                     device=self.device, 
                     compute_type=compute_type,
+                    cpu_threads=cpu_threads,
+                    num_workers=1,
                     download_root=str(MODELS_DIR)  # Завантажуємо в локальну директорію
                 )
             except Exception as e:
@@ -87,6 +76,8 @@ class LocalWhisperModel:
                         self.model_size, 
                         device=self.device, 
                         compute_type=compute_type,
+                        cpu_threads=cpu_threads,
+                        num_workers=1,
                         download_root=str(MODELS_DIR)
                     )
                 else:
@@ -127,19 +118,19 @@ class LocalWhisperModel:
                     logger.info(f"🚀 GPU доступна + RAM {memory_gb:.1f}GB - використовується small модель")
                     return "small"
             else:
-                # Для CPU використовуємо small модель
+                # Для CPU використовуємо швидшу модель
                 if memory_gb >= 8 and cpu_count >= 4:
-                    logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU AMD - оптимальна конфігурація для small моделі")
-                    return "small"
+                    logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU AMD - використовується base модель (швидше)")
+                    return "base"
                 elif memory_gb >= 6 and cpu_count >= 2:
-                    logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується small модель")
-                    return "small"
+                    logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується base модель")
+                    return "base"
                 else:
                     logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується base модель")
                     return "base"
         except Exception as e:
-            logger.warning(f"Помилка визначення ресурсів: {e}, використовується small модель")
-            return "small"
+            logger.warning(f"Помилка визначення ресурсів: {e}, використовується base модель")
+            return "base"
     
     def transcribe(self, audio_path: str, language: str = "uk") -> Dict[str, Any]:
         """Швидка транскрипція з faster-whisper (оптимізована для максимальної швидкості)"""
@@ -569,7 +560,7 @@ class LocalWhisperModel:
                 compute_type = "float16"
             
             # Завантажуємо модель в worker процесі
-            model = WhisperModel("small", device=device, compute_type=compute_type)
+            model = WhisperModel("base", device=device, compute_type=compute_type)
             
             # Транскрибуємо з оптимізованими параметрами для швидкості
             segments, info = model.transcribe(
