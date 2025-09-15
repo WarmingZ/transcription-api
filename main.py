@@ -117,7 +117,7 @@ def verify_api_key(authorization: str = Header(None)) -> str:
     
     return api_key
 
-def get_current_user(api_key: str = Depends(ґverify_api_key)) -> Dict[str, Any]:
+def get_current_user(api_key: str = Depends(verify_api_key)) -> Dict[str, Any]:
     """Отримує інформацію про поточного користувача"""
     api_key_manager = get_api_key_manager()
     key_info = api_key_manager.get_key_info(api_key)
