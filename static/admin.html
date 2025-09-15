@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔑 API Admin Panel</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        .content {
+            padding: 30px;
+        }
+        .auth-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border-left: 4px solid #1976d2;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .input-group input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: #4caf50;
+            color: white;
+        }
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        .btn-secondary {
+            background: #2196f3;
+            color: white;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #e3f2fd;
+            padding: 25px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #1976d2;
+            margin-bottom: 10px;
+        }
+        .form-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+        .active {
+            background: #e8f5e8;
+        }
+        .inactive {
+            background: #ffe8e8;
+        }
+        .key-preview {
+            font-family: monospace;
+            background: #f0f0f0;
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+        .new-key {
+            background: #e8f5e8;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 15px 0;
+            display: none;
+        }
+        .new-key code {
+            background: #f0f0f0;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            display: block;
+            margin: 10px 0;
+            word-break: break-all;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #1976d2;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔑 API Admin Panel</h1>
+            <p>Управління API ключами та доступом до сервісу транскрипції</p>
+        </div>
+
+        <div class="content">
+            <!-- Авторизація -->
+            <div class="auth-section">
+                <h3>🔐 Авторизація</h3>
+                <div class="input-group">
+                    <input type="password" id="masterToken" placeholder="Введіть Master токен" />
+                    <button class="btn btn-secondary" onclick="authenticate()">Увійти</button>
+                </div>
+                <div class="error" id="authError"></div>
+            </div>
+
+            <!-- Статистика -->
+            <div class="stats" id="statsSection" style="display: none;">
+                <div class="stat-card">
+                    <div class="stat-number" id="totalKeys">0</div>
+                    <div class="stat-label">Всього ключів</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="activeKeys">0</div>
+                    <div class="stat-label">Активних</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="inactiveKeys">0</div>
+                    <div class="stat-label">Неактивних</div>
+                </div>
+            </div>
+
+            <!-- Створення ключа -->
+            <div class="form-section" id="createSection" style="display: none;">
+                <h3>➕ Створити новий API ключ</h3>
+                <div class="input-group">
+                    <input type="text" id="clientName" placeholder="Назва клієнта (наприклад: My App)" />
+                    <button class="btn btn-primary" onclick="generateKey()">Генерувати ключ</button>
+                </div>
+                <div class="new-key" id="newKey"></div>
+                <div class="loading" id="createLoading">
+                    <div class="spinner"></div>
+                    <p>Створення API ключа...</p>
+                </div>
+            </div>
+
+            <!-- Список ключів -->
+            <div class="form-section" id="keysSection" style="display: none;">
+                <h3>📋 Список API ключів</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>API Ключ</th>
+                            <th>Клієнт</th>
+                            <th>Створено</th>
+                            <th>Дії</th>
+                        </tr>
+                    </thead>
+                    <tbody id="keysTable">
+                    </tbody>
+                </table>
+                <div class="loading" id="keysLoading">
+                    <div class="spinner"></div>
+                    <p>Завантаження списку ключів...</p>
+                </div>
+            </div>
+
+            <!-- Повідомлення -->
+            <div class="error" id="errorMessage"></div>
+            <div class="success" id="successMessage"></div>
+        </div>
+    </div>
+
+    <script>
+        let masterToken = '';
+        let apiKeys = [];
+
+        // Авторизація
+        async function authenticate() {
+            const tokenInput = document.getElementById('masterToken');
+            if (!tokenInput) {
+                showError('Поле master токена не знайдено');
+                return;
+            }
+            
+            const token = tokenInput.value.trim();
+            if (!token) {
+                showError('Введіть master токен');
+                return;
+            }
+
+            masterToken = token;
+            
+            try {
+                const response = await fetch('/admin/list-keys', {
+                    headers: {
+                        'Authorization': `Bearer ${masterToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    apiKeys = data.keys;
+                    updateStats(data.stats);
+                    showMainContent();
+                    hideError();
+                    showSuccess('Успішно авторизовано!');
+                } else {
+                    showError('Недійсний master токен');
+                }
+            } catch (error) {
+                showError('Помилка підключення: ' + error.message);
+            }
+        }
+
+        // Показати основний контент
+        function showMainContent() {
+            const authSection = document.getElementById('authSection');
+            const statsSection = document.getElementById('statsSection');
+            const createSection = document.getElementById('createSection');
+            const keysSection = document.getElementById('keysSection');
+            
+            if (authSection) authSection.style.display = 'none';
+            if (statsSection) statsSection.style.display = 'grid';
+            if (createSection) createSection.style.display = 'block';
+            if (keysSection) keysSection.style.display = 'block';
+            
+            loadKeys();
+        }
+
+        // Оновити статистику
+        function updateStats(stats) {
+            const totalKeys = document.getElementById('totalKeys');
+            const activeKeys = document.getElementById('activeKeys');
+            const inactiveKeys = document.getElementById('inactiveKeys');
+            
+            if (totalKeys) totalKeys.textContent = stats.total_keys;
+            if (activeKeys) activeKeys.textContent = stats.active_keys;
+            if (inactiveKeys) inactiveKeys.textContent = stats.inactive_keys;
+        }
+
+        // Завантажити список ключів
+        async function loadKeys() {
+            showLoading('keysLoading');
+            
+            try {
+                const response = await fetch('/admin/list-keys', {
+                    headers: {
+                        'Authorization': `Bearer ${masterToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    apiKeys = data.keys;
+                    updateKeysTable();
+                    updateStats(data.stats);
+                } else {
+                    showError('Помилка завантаження списку ключів');
+                }
+            } catch (error) {
+                showError('Помилка підключення: ' + error.message);
+            } finally {
+                hideLoading('keysLoading');
+            }
+        }
+
+        // Оновити таблицю ключів
+        function updateKeysTable() {
+            const tbody = document.getElementById('keysTable');
+            tbody.innerHTML = '';
+
+            if (apiKeys.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 30px; color: #666;">Немає API ключів</td></tr>';
+                return;
+            }
+
+            apiKeys.forEach(key => {
+                const row = document.createElement('tr');
+                row.className = key.active ? 'active' : 'inactive';
+                
+                row.innerHTML = `
+                    <td><div class="key-preview">${key.key.substring(0, 20)}...</div></td>
+                    <td>${key.client_name}</td>
+                    <td>${new Date(key.created_at).toLocaleString('uk-UA')}</td>
+                    <td>
+                        <button class="btn btn-danger" onclick="deleteKey('${key.key}')">Видалити</button>
+                    </td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+        }
+
+        // Генерувати новий ключ
+        async function generateKey() {
+            const clientNameInput = document.getElementById('clientName');
+            if (!clientNameInput) {
+                showError('Поле назви клієнта не знайдено');
+                return;
+            }
+            
+            const clientName = clientNameInput.value.trim();
+            if (!clientName) {
+                showError('Введіть назву клієнта');
+                return;
+            }
+
+            showLoading('createLoading');
+            hideError();
+
+            try {
+                const response = await fetch('/admin/generate-key', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${masterToken}`
+                    },
+                    body: JSON.stringify({ client_name: clientName })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    showNewKey(data);
+                    clientNameInput.value = '';
+                    loadKeys();
+                } else {
+                    showError('Помилка створення ключа');
+                }
+            } catch (error) {
+                showError('Помилка підключення: ' + error.message);
+            } finally {
+                hideLoading('createLoading');
+            }
+        }
+
+        // Показати новий ключ
+        function showNewKey(data) {
+            const newKeyDiv = document.getElementById('newKey');
+            if (!newKeyDiv) {
+                showError('Елемент для відображення ключа не знайдено');
+                return;
+            }
+            
+            newKeyDiv.innerHTML = `
+                <h4>✅ Новий API ключ створено!</h4>
+                <p><strong>Клієнт:</strong> ${data.client_name}</p>
+                <p><strong>API ключ:</strong></p>
+                <code>${data.api_key}</code>
+                <p><strong>Створено:</strong> ${new Date(data.created_at).toLocaleString('uk-UA')}</p>
+                <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                    <strong>⚠️ УВАГА!</strong> Збережіть цей ключ! Він більше не буде показаний.
+                </div>
+            `;
+            newKeyDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                if (newKeyDiv) {
+                    newKeyDiv.style.display = 'none';
+                }
+            }, 10000);
+        }
+
+        // Видалити ключ
+        async function deleteKey(apiKey) {
+            if (!confirm('Ви впевнені, що хочете видалити цей API ключ?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/admin/delete-key', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${masterToken}`
+                    },
+                    body: JSON.stringify({ api_key: apiKey })
+                });
+
+                if (response.ok) {
+                    showSuccess('API ключ успішно видалено');
+                    loadKeys();
+                } else {
+                    showError('Помилка видалення ключа');
+                }
+            } catch (error) {
+                showError('Помилка підключення: ' + error.message);
+            }
+        }
+
+        // Допоміжні функції
+        function showLoading(elementId) {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.style.display = 'block';
+            }
+        }
+
+        function hideLoading(elementId) {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.style.display = 'none';
+            }
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            if (errorDiv) {
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+                setTimeout(() => hideError(), 5000);
+            }
+        }
+
+        function hideError() {
+            const errorDiv = document.getElementById('errorMessage');
+            if (errorDiv) {
+                errorDiv.style.display = 'none';
+            }
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.getElementById('successMessage');
+            if (successDiv) {
+                successDiv.textContent = message;
+                successDiv.style.display = 'block';
+                setTimeout(() => hideSuccess(), 3000);
+            }
+        }
+
+        function hideSuccess() {
+            const successDiv = document.getElementById('successMessage');
+            if (successDiv) {
+                successDiv.style.display = 'none';
+            }
+        }
+
+        // Автоматичне оновлення списку кожні 30 секунд
+        setInterval(() => {
+            if (masterToken) {
+                loadKeys();
+            }
+        }, 30000);
+
+        // Обробка Enter
+        const masterTokenInput = document.getElementById('masterToken');
+        if (masterTokenInput) {
+            masterTokenInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    authenticate();
+                }
+            });
+        }
+
+        const clientNameInput = document.getElementById('clientName');
+        if (clientNameInput) {
+            clientNameInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    generateKey();
+                }
+            });
+        }
+    </script>
+</body>
+</html>

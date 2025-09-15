@@ -1,6 +1,8 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Header, Request
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, HttpUrl
 import tempfile
 import os
@@ -8,6 +10,8 @@ import httpx
 from typing import Optional, List, Dict, Any
 import logging
 from models import LocalTranscriptionService
+from middleware import verify_api_key, verify_master_token, verify_master_token_from_query
+from api_auth import api_key_manager
 
 # Налаштування логування
 logging.basicConfig(level=logging.INFO)
@@ -53,6 +57,23 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
 
+class GenerateKeyRequest(BaseModel):
+    client_name: str
+
+class GenerateKeyResponse(BaseModel):
+    api_key: str
+    client_name: str
+    created_at: str
+
+class DeleteKeyRequest(BaseModel):
+    api_key: str
+
+class APIKeyInfo(BaseModel):
+    key: str
+    client_name: str
+    created_at: str
+    active: bool
+
 @app.on_event("startup")
 async def load_models():
     """Завантаження локальних моделей при запуску сервера"""
@@ -67,6 +88,9 @@ async def load_models():
         else:
             logger.error("Не вдалося завантажити моделі")
             raise RuntimeError("Моделі не завантажені")
+        
+        # Виводимо інформацію про master токен
+        api_key_manager.print_startup_info()
         
     except Exception as e:
         logger.error(f"Помилка при завантаженні моделей: {e}")
@@ -96,7 +120,8 @@ async def transcribe_audio_file(
     url: Optional[str] = Form(None),
     language: str = Form("uk"),
     model_size: str = Form("small"),
-    use_diarization: bool = Form(False)
+    use_diarization: bool = Form(False),
+    api_key: str = Depends(verify_api_key)
 ):
     """
     Транскрипція аудіо/відео файлу з визначенням дикторів
@@ -167,7 +192,8 @@ async def transcribe_with_diarization(
     file: Optional[UploadFile] = File(None),
     url: Optional[str] = Form(None),
     language: str = Form("uk"),
-    model_size: str = Form("small")
+    model_size: str = Form("small"),
+    api_key: str = Depends(verify_api_key)
 ):
     """
     Транскрипція аудіо/відео файлу з діаризацією Оператор/Клієнт
@@ -238,6 +264,255 @@ async def health_check():
     }
 
 
+# Адмін endpoints
+@app.post("/admin/generate-key", response_model=GenerateKeyResponse)
+async def generate_api_key(
+    request: GenerateKeyRequest,
+    master_token: str = Depends(verify_master_token)
+):
+    """Генерує новий API ключ (потребує master токен)"""
+    try:
+        api_key = api_key_manager.generate_api_key(request.client_name)
+        key_info = api_key_manager.get_api_key_info(api_key)
+        
+        return GenerateKeyResponse(
+            api_key=api_key,
+            client_name=key_info["client_name"],
+            created_at=key_info["created_at"]
+        )
+    except Exception as e:
+        logger.error(f"Помилка генерації API ключа: {e}")
+        raise HTTPException(status_code=500, detail=f"Помилка генерації ключа: {str(e)}")
+
+@app.post("/admin/delete-key")
+async def delete_api_key(
+    request: DeleteKeyRequest,
+    master_token: str = Depends(verify_master_token)
+):
+    """Видаляє API ключ (потребує master токен)"""
+    try:
+        success = api_key_manager.delete_api_key(request.api_key)
+        if success:
+            return {"message": "API ключ успішно видалено"}
+        else:
+            raise HTTPException(status_code=404, detail="API ключ не знайдено")
+    except Exception as e:
+        logger.error(f"Помилка видалення API ключа: {e}")
+        raise HTTPException(status_code=500, detail=f"Помилка видалення ключа: {str(e)}")
+
+@app.get("/admin/list-keys")
+async def list_api_keys(master_token: str = Depends(verify_master_token)):
+    """Отримує список всіх API ключів (потребує master токен)"""
+    try:
+        keys = api_key_manager.list_api_keys()
+        stats = api_key_manager.get_stats()
+        
+        return {
+            "keys": keys,
+            "stats": stats
+        }
+    except Exception as e:
+        logger.error(f"Помилка отримання списку ключів: {e}")
+        raise HTTPException(status_code=500, detail=f"Помилка отримання списку: {str(e)}")
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel(request: Request):
+    """Адмін панель для управління API ключами"""
+    # Перевіряємо master токен з query параметра
+    master_token = request.query_params.get("master_token")
+    if not master_token or not api_key_manager.verify_master_token(master_token):
+        return HTMLResponse("""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>API Admin Panel - Access Denied</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 50px; text-align: center; }
+                .error { color: #d32f2f; background: #ffebee; padding: 20px; border-radius: 8px; }
+            </style>
+        </head>
+        <body>
+            <div class="error">
+                <h1>🔒 Access Denied</h1>
+                <p>Недійсний або відсутній master токен</p>
+                <p>Використовуйте: <code>/admin?master_token=YOUR_MASTER_TOKEN</code></p>
+            </div>
+        </body>
+        </html>
+        """, status_code=401)
+    
+    # Отримуємо список ключів
+    try:
+        keys = api_key_manager.list_api_keys()
+        stats = api_key_manager.get_stats()
+    except Exception as e:
+        keys = []
+        stats = {"total_keys": 0, "active_keys": 0, "inactive_keys": 0}
+    
+    # Генеруємо HTML
+    keys_html = ""
+    for key in keys:
+        status_class = "active" if key["active"] else "inactive"
+        keys_html += f"""
+        <tr class="{status_class}">
+            <td><code>{key["key"][:20]}...</code></td>
+            <td>{key["client_name"]}</td>
+            <td>{key["created_at"][:19]}</td>
+            <td>
+                <button onclick="deleteKey('{key["key"]}')" class="delete-btn">Видалити</button>
+            </td>
+        </tr>
+        """
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>API Admin Panel</title>
+        <meta charset="UTF-8">
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+            .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+            h1 {{ color: #1976d2; border-bottom: 2px solid #1976d2; padding-bottom: 10px; }}
+            .stats {{ display: flex; gap: 20px; margin: 20px 0; }}
+            .stat-card {{ background: #e3f2fd; padding: 15px; border-radius: 8px; text-align: center; flex: 1; }}
+            .stat-number {{ font-size: 24px; font-weight: bold; color: #1976d2; }}
+            .form-section {{ background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+            table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
+            th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }}
+            th {{ background: #f8f9fa; font-weight: bold; }}
+            .active {{ background: #e8f5e8; }}
+            .inactive {{ background: #ffe8e8; }}
+            input[type="text"] {{ width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }}
+            button {{ padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; }}
+            .generate-btn {{ background: #4caf50; color: white; }}
+            .delete-btn {{ background: #f44336; color: white; }}
+            .generate-btn:hover {{ background: #45a049; }}
+            .delete-btn:hover {{ background: #da190b; }}
+            .new-key {{ background: #e8f5e8; padding: 15px; border-radius: 8px; margin: 10px 0; display: none; }}
+            .new-key code {{ background: #f0f0f0; padding: 5px; border-radius: 3px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🔑 API Admin Panel</h1>
+            
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-number">{stats["total_keys"]}</div>
+                    <div>Всього ключів</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">{stats["active_keys"]}</div>
+                    <div>Активних</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">{stats["inactive_keys"]}</div>
+                    <div>Неактивних</div>
+                </div>
+            </div>
+            
+            <div class="form-section">
+                <h3>➕ Створити новий API ключ</h3>
+                <input type="text" id="clientName" placeholder="Назва клієнта" />
+                <button class="generate-btn" onclick="generateKey()">Генерувати ключ</button>
+                <div id="newKey" class="new-key"></div>
+            </div>
+            
+            <div class="form-section">
+                <h3>📋 Список API ключів</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>API Ключ</th>
+                            <th>Клієнт</th>
+                            <th>Створено</th>
+                            <th>Дії</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {keys_html}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <script>
+            async function generateKey() {{
+                const clientName = document.getElementById('clientName').value;
+                if (!clientName) {{
+                    alert('Введіть назву клієнта');
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/admin/generate-key', {{
+                        method: 'POST',
+                        headers: {{
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer {master_token}'
+                        }},
+                        body: JSON.stringify({{ client_name: clientName }})
+                    }});
+                    
+                    if (response.ok) {{
+                        const data = await response.json();
+                        const newKeyDiv = document.getElementById('newKey');
+                        newKeyDiv.innerHTML = `
+                            <h4>✅ Новий API ключ створено!</h4>
+                            <p><strong>Клієнт:</strong> ${{data.client_name}}</p>
+                            <p><strong>API ключ:</strong> <code>${{data.api_key}}</code></p>
+                            <p><strong>Створено:</strong> ${{data.created_at}}</p>
+                            <p style="color: #d32f2f;"><strong>⚠️ Збережіть цей ключ! Він більше не буде показаний.</strong></p>
+                        `;
+                        newKeyDiv.style.display = 'block';
+                        document.getElementById('clientName').value = '';
+                        setTimeout(() => location.reload(), 2000);
+                    }} else {{
+                        alert('Помилка створення ключа');
+                    }}
+                }} catch (error) {{
+                    alert('Помилка: ' + error.message);
+                }}
+            }}
+            
+            async function deleteKey(apiKey) {{
+                if (!confirm('Ви впевнені, що хочете видалити цей API ключ?')) {{
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch('/admin/delete-key', {{
+                        method: 'POST',
+                        headers: {{
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer {master_token}'
+                        }},
+                        body: JSON.stringify({{ api_key: apiKey }})
+                    }});
+                    
+                    if (response.ok) {{
+                        alert('API ключ видалено');
+                        location.reload();
+                    }} else {{
+                        alert('Помилка видалення ключа');
+                    }}
+                }} catch (error) {{
+                    alert('Помилка: ' + error.message);
+                }}
+            }}
+        </script>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(html_content)
+
+@app.get("/admin-panel")
+async def admin_panel_static():
+    """Статична адмін панель"""
+    return FileResponse("static/admin.html")
+
 @app.get("/api")
 async def api_info():
     """Інформація про API"""
@@ -246,11 +521,16 @@ async def api_info():
         "version": "1.0.0",
         "description": "API для транскрипції українського аудіо/відео з визначенням дикторів (локальні моделі)",
         "endpoints": {
-            "transcribe": "/transcribe (POST, public)",
-            "transcribe_with_diarization": "/transcribe-with-diarization (POST, public)",
+            "transcribe": "/transcribe (POST, requires API key)",
+            "transcribe_with_diarization": "/transcribe-with-diarization (POST, requires API key)",
             "health": "/health (GET, public)",
             "docs": "/docs (GET, public)",
-            "api_info": "/api (GET, public)"
+            "api_info": "/api (GET, public)",
+            "admin": "/admin (GET, requires master token)",
+            "admin_panel": "/admin-panel (GET, static HTML page)",
+            "admin_generate_key": "/admin/generate-key (POST, requires master token)",
+            "admin_delete_key": "/admin/delete-key (POST, requires master token)",
+            "admin_list_keys": "/admin/list-keys (GET, requires master token)"
         },
         "features": [
             "Локальна транскрипція (faster-whisper)",
@@ -258,14 +538,16 @@ async def api_info():
             "Проста діаризація Оператор/Клієнт (WebRTC VAD)",
             "Підтримка файлів та URL",
             "Українська мова",
-            "Оптимізація для CPU та GPU"
+            "Оптимізація для CPU та GPU",
+            "Система API токенів"
         ],
         "supported_formats": [
             "Аудіо: WAV, MP3, M4A, FLAC, OGG",
             "Відео: MP4, AVI, MOV, MKV"
         ],
         "model_sizes": ["tiny", "base", "small", "medium", "large", "auto"],
-        "languages": ["uk", "en", "ru", "pl", "de", "fr", "es", "it"]
+        "languages": ["uk", "en", "ru", "pl", "de", "fr", "es", "it"],
+        "note": "Для використання API потрібен API ключ. Отримайте його у адміністратора."
     }
 
 if __name__ == "__main__":

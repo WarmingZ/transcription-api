@@ -21,6 +21,11 @@ wheels/
 *.egg
 MANIFEST
 
+data/
+*.token
+*.key
+*.secret
+
 # Virtual Environment
 venv/
 env/
@@ -47,102 +52,20 @@ Thumbs.db
 # Logs
 *.log
 logs/
-log/
 
 # Temporary files
 temp/
 tmp/
 *.tmp
-*.temp
 
-# Audio/Video files (не завантажуємо великі файли)
-*.wav
-*.mp3
-*.mp4
-*.avi
-*.mov
-*.mkv
-*.flac
-*.aac
-*.ogg
-
-# Model files (завантажуються автоматично)
+# Model files (можуть бути великими)
 models/faster-whisper-*/
-models/models--Systran--faster-whisper-*/
-models/spkrec-ecapa-voxceleb/
-models/.locks/
-pretrained_models/*/
-*.bin
-*.ckpt
-*.pth
-*.pt
+models/spkrec-*/
+pretrained_models/
 
-# Temporary files
-temp/*
-logs/*
-*.log
-*.pid
-
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.so
-
-# Virtual environment
-venv/
-env/
-ENV/
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Environment variables
-.env
-.env.local
+models/
 
 # Environment variables
 .env
 .env.local
 .env.production
-.env.staging
-
-# Docker
-.dockerignore
-
-# Test files
-test_*.py
-*_test.py
-tests/
-pytest.ini
-
-# Results
-result*.json
-output/
-results/
-
-# Cache
-.cache/
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Jupyter Notebooks
-.ipynb_checkpoints/
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
