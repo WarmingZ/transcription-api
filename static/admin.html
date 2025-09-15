@@ -535,11 +535,13 @@
             showLoading(true);
             
             try {
+                console.log('🔑 Спроба авторизації з ключем:', adminKey);
                 const response = await fetch('/api-key/status', {
                     headers: {
                         'Authorization': `Bearer ${adminKey}`
                     }
                 });
+                console.log('📡 Відповідь сервера:', response.status, response.statusText);
 
                 if (response.ok) {
                     const data = await response.json();
@@ -553,7 +555,8 @@
                         showAlert('Цей ключ не має адміністраторських прав', 'error');
                     }
                 } else {
-                    showAlert('Недійсний або неактивний API ключ', 'error');
+                    const errorData = await response.json().catch(() => ({ detail: 'Невідома помилка' }));
+                    showAlert(`Помилка авторизації: ${errorData.detail || 'Недійсний або неактивний API ключ'}`, 'error');
                 }
             } catch (error) {
                 showAlert('Помилка підключення до сервера', 'error');
