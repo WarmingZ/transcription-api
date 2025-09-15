@@ -56,16 +56,33 @@ class LocalTranscriptionService:
                     memory_gb = psutil.virtual_memory().total / (1024**3)
                     cpu_count = psutil.cpu_count()
                     
-                    # Оптимізовано для сервера 8GB RAM + 4 CPU AMD
-                    if memory_gb >= 8 and cpu_count >= 4:
-                        model_size = "medium"  # Оптимальна якість для вашого сервера
-                        logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується medium модель")
-                    elif memory_gb >= 6:
-                        model_size = "medium"  # Добра якість для української
-                        logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується medium модель")
+                    if device == "cuda":
+                        # Для GPU можна використовувати більші моделі
+                        try:
+                            gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                            
+                            if gpu_memory >= 8:  # 8GB+ GPU
+                                model_size = "medium"  # Оптимально для GPU
+                                logger.info(f"🚀 GPU {gpu_memory:.1f}GB + RAM {memory_gb:.1f}GB - використовується medium модель")
+                            elif gpu_memory >= 4:  # 4GB+ GPU
+                                model_size = "small"  # Безпечно для GPU
+                                logger.info(f"🚀 GPU {gpu_memory:.1f}GB + RAM {memory_gb:.1f}GB - використовується small модель")
+                            else:
+                                model_size = "base"  # Для малих GPU
+                                logger.info(f"🚀 GPU {gpu_memory:.1f}GB + RAM {memory_gb:.1f}GB - використовується base модель")
+                        except:
+                            model_size = "small"  # Fallback для GPU
                     else:
-                        model_size = "small"  # Базовий варіант
-                        logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується small модель")
+                        # Для CPU використовуємо small модель
+                        if memory_gb >= 8 and cpu_count >= 4:
+                            model_size = "small"  # Оптимально для стабільності на 8GB RAM
+                            logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується small модель (оптимально)")
+                        elif memory_gb >= 6:
+                            model_size = "small"  # Безпечно для 6GB+ RAM
+                            logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується small модель")
+                        else:
+                            model_size = "base"  # Для менших серверів
+                            logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується base модель")
                 except:
                     model_size = "small"
             elif model_size not in SUPPORTED_MODELS:

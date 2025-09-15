@@ -109,15 +109,34 @@ class LocalWhisperModel:
             cpu_count = psutil.cpu_count()
             
             # Визначаємо розмір моделі на основі ресурсів (оптимізовано для сервера 8GB RAM + 4 CPU AMD)
-            if memory_gb >= 8 and cpu_count >= 4:
-                logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU AMD - оптимальна конфігурація для medium моделі")
-                return "medium"
-            elif memory_gb >= 4 and cpu_count >= 2:
-                logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується medium модель")
-                return "medium"
+            if torch.cuda.is_available():
+                # Для GPU можна використовувати більші моделі
+                try:
+                    gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                    
+                    if gpu_memory >= 8:  # 8GB+ GPU
+                        logger.info(f"🚀 GPU {gpu_memory:.1f}GB + RAM {memory_gb:.1f}GB - оптимальна конфігурація для medium моделі")
+                        return "medium"
+                    elif gpu_memory >= 4:  # 4GB+ GPU
+                        logger.info(f"🚀 GPU {gpu_memory:.1f}GB + RAM {memory_gb:.1f}GB - використовується small модель")
+                        return "small"
+                    else:
+                        logger.info(f"🚀 GPU {gpu_memory:.1f}GB + RAM {memory_gb:.1f}GB - використовується base модель")
+                        return "base"
+                except:
+                    logger.info(f"🚀 GPU доступна + RAM {memory_gb:.1f}GB - використовується small модель")
+                    return "small"
             else:
-                logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується small модель")
-                return "small"
+                # Для CPU використовуємо small модель
+                if memory_gb >= 8 and cpu_count >= 4:
+                    logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU AMD - оптимальна конфігурація для small моделі")
+                    return "small"
+                elif memory_gb >= 6 and cpu_count >= 2:
+                    logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується small модель")
+                    return "small"
+                else:
+                    logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується base модель")
+                    return "base"
         except Exception as e:
             logger.warning(f"Помилка визначення ресурсів: {e}, використовується small модель")
             return "small"
