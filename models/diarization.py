@@ -97,6 +97,66 @@ class SimpleDiarizationService:
         except Exception as e:
             logger.error(f"Помилка виявлення сегментів мовлення: {e}")
             return []
+
+    def _detect_speech_segments_from_array(self, audio: np.ndarray, sr: int, 
+                                         min_silence_duration: float = 0.5) -> List[Tuple[float, float]]:
+        """Виявляє сегменти мовлення з аудіо масиву за допомогою WebRTC VAD"""
+        try:
+            logger.info(f"VAD аналіз аудіо масиву: {len(audio)} зразків, {sr}Hz")
+            
+            # Конвертуємо в int16 для WebRTC VAD
+            audio_int16 = (audio * 32767).astype(np.int16)
+            
+            # Оптимізовані параметри для VAD
+            frame_duration = 30  # мс
+            frame_size = int(sr * frame_duration / 1000)
+            
+            speech_segments = []
+            current_segment_start = None
+            in_speech = False
+            silence_frames = 0
+            min_silence_frames = int(min_silence_duration * 1000 / frame_duration)
+            
+            logger.info(f"VAD параметри: frame_duration={frame_duration}ms, min_silence_frames={min_silence_frames}")
+            
+            # Обробляємо аудіо кадрами
+            for i in range(0, len(audio_int16) - frame_size, frame_size):
+                frame = audio_int16[i:i + frame_size]
+                
+                try:
+                    is_speech = self.vad.is_speech(frame.tobytes(), sr)
+                except:
+                    # Fallback для нестандартних кадрів
+                    is_speech = False
+                
+                if is_speech:
+                    if not in_speech:
+                        current_segment_start = i / sr
+                        in_speech = True
+                        silence_frames = 0
+                    else:
+                        silence_frames = 0
+                else:
+                    if in_speech:
+                        silence_frames += 1
+                        if silence_frames >= min_silence_frames:
+                            # Завершуємо сегмент
+                            segment_end = (i + silence_frames * frame_size) / sr
+                            speech_segments.append((current_segment_start, segment_end))
+                            in_speech = False
+                            current_segment_start = None
+            
+            # Завершуємо останній сегмент якщо потрібно
+            if in_speech and current_segment_start is not None:
+                segment_end = len(audio_int16) / sr
+                speech_segments.append((current_segment_start, segment_end))
+            
+            logger.info(f"VAD знайшов {len(speech_segments)} сегментів мовлення")
+            return speech_segments
+            
+        except Exception as e:
+            logger.error(f"Помилка VAD аналізу аудіо масиву: {e}")
+            return []
     
     def _merge_close_segments(self, segments: List[Tuple[float, float]], max_gap: float = 1.0) -> List[Tuple[float, float]]:
         """Об'єднує близькі сегменти мовлення з покращеною обробкою початку"""
@@ -167,4 +227,29 @@ class SimpleDiarizationService:
             
         except Exception as e:
             logger.error(f"Помилка діаризації: {e}")
+            return []
+
+    def process_audio_array(self, audio: np.ndarray, sr: int) -> List[Dict[str, Any]]:
+        """Обробка аудіо масиву з діаризацією (без завантаження з файлу)"""
+        try:
+            logger.info(f"Початок діаризації аудіо масиву: {len(audio)} зразків, {sr}Hz")
+            
+            # Виявляємо сегменти мовлення з аудіо масиву
+            speech_segments = self._detect_speech_segments_from_array(audio, sr)
+            
+            if not speech_segments:
+                logger.warning("Сегменти мовлення не знайдено")
+                return []
+            
+            # Об'єднуємо близькі сегменти
+            merged_segments = self._merge_close_segments(speech_segments)
+            
+            # Призначаємо ролі
+            speaker_assignments = self.assign_speakers(merged_segments)
+            
+            logger.info(f"Діаризація завершена: {len(speaker_assignments)} сегментів з ролями")
+            return speaker_assignments
+            
+        except Exception as e:
+            logger.error(f"Помилка діаризації аудіо масиву: {e}")
             return []

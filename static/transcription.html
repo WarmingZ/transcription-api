@@ -2,7 +2,7 @@
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>OSD Audio Transcription</title>
     <style>
         * {
@@ -15,7 +15,8 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 20px;
+            padding: 10px;
+            margin: 0;
         }
 
         .container {
@@ -25,6 +26,44 @@
             border-radius: 15px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.1);
             overflow: hidden;
+        }
+
+        /* Адаптивність для мобільних пристроїв */
+        @media (max-width: 768px) {
+            body {
+                padding: 5px;
+            }
+            
+            .container {
+                border-radius: 10px;
+                margin: 0;
+            }
+            
+            .header {
+                padding: 20px 15px;
+            }
+            
+            .header h1 {
+                font-size: 1.8em;
+            }
+            
+            .content {
+                padding: 20px 15px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 1.5em;
+            }
+            
+            .header p {
+                font-size: 0.9em;
+            }
+            
+            .content {
+                padding: 15px 10px;
+            }
         }
 
         .header {
@@ -51,6 +90,55 @@
             border-left: 4px solid #1976d2;
         }
 
+        .remember-me {
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .checkbox-container input[type="checkbox"] {
+            display: none;
+        }
+
+        .checkmark {
+            width: 20px;
+            height: 20px;
+            background-color: #fff;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .checkbox-container:hover .checkmark {
+            border-color: #1976d2;
+        }
+
+        .checkbox-container input[type="checkbox"]:checked + .checkmark {
+            background-color: #1976d2;
+            border-color: #1976d2;
+        }
+
+        .checkbox-container input[type="checkbox"]:checked + .checkmark:after {
+            content: "";
+            position: absolute;
+            left: 6px;
+            top: 2px;
+            width: 6px;
+            height: 10px;
+            border: solid white;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
         .form-section {
             background: #f8f9fa;
             padding: 25px;
@@ -63,10 +151,12 @@
             gap: 10px;
             margin-bottom: 15px;
             align-items: center;
+            flex-wrap: wrap;
         }
 
         .input-group input, .input-group select {
             flex: 1;
+            min-width: 200px;
             padding: 12px 15px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
@@ -76,6 +166,48 @@
         .input-group label {
             min-width: 120px;
             font-weight: 600;
+        }
+
+        /* Адаптивність для форми */
+        @media (max-width: 768px) {
+            .input-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .input-group label {
+                min-width: auto;
+                margin-bottom: 5px;
+            }
+            
+            .input-group input, .input-group select {
+                min-width: auto;
+                width: 100%;
+            }
+            
+            .btn {
+                width: 100%;
+                margin-top: 10px;
+            }
+            
+            .remember-me {
+                margin-top: 10px;
+            }
+            
+            .checkbox-container {
+                font-size: 13px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .checkbox-container {
+                font-size: 12px;
+            }
+            
+            .checkmark {
+                width: 18px;
+                height: 18px;
+            }
         }
 
         .file-upload {
@@ -97,6 +229,35 @@
         .file-upload.dragover {
             background: #e3f2fd;
             border-color: #1565c0;
+        }
+
+        /* Адаптивність для file-upload */
+        @media (max-width: 768px) {
+            .file-upload {
+                padding: 20px 15px;
+            }
+            
+            .file-upload h4 {
+                font-size: 1.1em;
+            }
+            
+            .file-upload p {
+                font-size: 0.9em;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .file-upload {
+                padding: 15px 10px;
+            }
+            
+            .file-upload h4 {
+                font-size: 1em;
+            }
+            
+            .file-upload p {
+                font-size: 0.8em;
+            }
         }
 
         .file-upload input[type="file"] {
@@ -147,6 +308,7 @@
             font-family: 'Courier New', monospace;
             max-height: 400px;
             overflow-y: auto;
+            word-wrap: break-word;
         }
 
         .segments {
@@ -159,6 +321,50 @@
             border-radius: 8px;
             margin: 10px 0;
             border-left: 4px solid #1976d2;
+            word-wrap: break-word;
+        }
+
+        /* Адаптивність для результатів */
+        @media (max-width: 768px) {
+            .result-text {
+                padding: 15px;
+                font-size: 0.9em;
+                max-height: 300px;
+            }
+            
+            .segment {
+                padding: 12px;
+                margin: 8px 0;
+            }
+            
+            .segment-header {
+                font-size: 0.9em;
+            }
+            
+            .segment-time {
+                font-size: 0.8em;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .result-text {
+                padding: 10px;
+                font-size: 0.8em;
+                max-height: 250px;
+            }
+            
+            .segment {
+                padding: 10px;
+                margin: 6px 0;
+            }
+            
+            .segment-header {
+                font-size: 0.8em;
+            }
+            
+            .segment-time {
+                font-size: 0.7em;
+            }
         }
 
         .segment-header {
@@ -233,6 +439,27 @@
             background: #f57c00;
         }
 
+        /* Адаптивність для кнопок */
+        @media (max-width: 768px) {
+            .copy-btn {
+                width: 100%;
+                margin: 5px 0;
+                padding: 10px 16px;
+            }
+            
+            .input-group .btn {
+                width: 100%;
+                margin-top: 10px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .copy-btn {
+                padding: 8px 12px;
+                font-size: 0.9em;
+            }
+        }
+
         .speaker-label {
             background: #4caf50;
             color: white;
@@ -244,6 +471,47 @@
 
         .speaker-operator { background: #2196f3; }
         .speaker-client { background: #ff9800; }
+
+        /* Адаптивність для статусу задачі */
+        @media (max-width: 768px) {
+            #taskStatus {
+                margin: 15px 0;
+            }
+            
+            #taskStatus h4 {
+                font-size: 1.1em;
+            }
+            
+            #taskProgress {
+                padding: 15px;
+            }
+            
+            #taskStatusText, #taskProgressPercent {
+                font-size: 0.9em;
+            }
+        }
+
+        @media (max-width: 480px) {
+            #taskStatus {
+                margin: 10px 0;
+            }
+            
+            #taskStatus h4 {
+                font-size: 1em;
+            }
+            
+            #taskProgress {
+                padding: 10px;
+            }
+            
+            #taskStatusText, #taskProgressPercent {
+                font-size: 0.8em;
+            }
+            
+            #taskProgressBar {
+                height: 15px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -261,6 +529,13 @@
                     <label for="apiKey">API Ключ:</label>
                     <input type="password" id="apiKey" placeholder="Введіть ваш API ключ" />
                     <button class="btn btn-secondary" onclick="authenticate()">Перевірити</button>
+                </div>
+                <div class="remember-me">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="rememberMe">
+                        <span class="checkmark"></span>
+                        Запам'ятати мене
+                    </label>
                 </div>
                 <div class="error" id="authError"></div>
             </div>
@@ -351,6 +626,8 @@
         // Авторизація
         async function authenticate() {
             const apiKeyInput = document.getElementById('apiKey');
+            const rememberMe = document.getElementById('rememberMe');
+            
             if (!apiKeyInput) {
                 showError('Поле API ключа не знайдено');
                 return;
@@ -363,6 +640,16 @@
             }
 
             apiKey = key;
+            
+            // Збереження API ключа якщо вибрано "Запам'ятати мене"
+            if (rememberMe && rememberMe.checked) {
+                localStorage.setItem('transcription_api_key', key);
+                localStorage.setItem('transcription_remember_me', 'true');
+            } else {
+                // Видалення збереженого ключа якщо не вибрано
+                localStorage.removeItem('transcription_api_key');
+                localStorage.removeItem('transcription_remember_me');
+            }
             
             try {
                 const response = await fetch('/health');
@@ -469,18 +756,112 @@
                 });
 
                 if (response.ok) {
-                    transcriptionResult = await response.json();
-                    showResult();
-                    showSuccess('Транскрипція завершена успішно!');
+                    const taskResponse = await response.json();
+                    showSuccess(`Файл додано в чергу обробки! Task ID: ${taskResponse.task_id}`);
+                    hideLoading('transcriptionLoading');
+                    
+                    // Починаємо відстеження статусу задачі
+                    trackTask(taskResponse.task_id);
                 } else {
                     const errorData = await response.json();
                     showError('Помилка транскрипції: ' + (errorData.detail || 'Невідома помилка'));
+                    hideLoading('transcriptionLoading');
                 }
             } catch (error) {
                 showError('Помилка підключення: ' + error.message);
-            } finally {
                 hideLoading('transcriptionLoading');
             }
+        }
+
+        // Відстеження статусу задачі
+        async function trackTask(taskId) {
+            const statusDiv = document.createElement('div');
+            statusDiv.id = 'taskStatus';
+            statusDiv.innerHTML = `
+                <div style="background: #e3f2fd; padding: 20px; border-radius: 10px; margin: 20px 0;">
+                    <h4>📋 Статус обробки</h4>
+                    <div id="taskProgress">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                            <span id="taskStatusText">В черзі...</span>
+                            <span id="taskProgressPercent">0%</span>
+                        </div>
+                        <div style="background: #ddd; border-radius: 10px; height: 20px; overflow: hidden;">
+                            <div id="taskProgressBar" style="background: #4caf50; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                        <div style="margin-top: 10px; font-size: 0.9em; color: #666;">
+                            Task ID: <code>${taskId}</code>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Вставляємо статус перед результатами
+            const resultSection = document.getElementById('resultSection');
+            resultSection.parentNode.insertBefore(statusDiv, resultSection);
+            
+            // Оновлюємо статус кожні 2 секунди
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/task/${taskId}`);
+                    if (response.ok) {
+                        const taskStatus = await response.json();
+                        updateTaskStatus(taskStatus);
+                        
+                        if (taskStatus.status === 'completed' || taskStatus.status === 'failed') {
+                            clearInterval(interval);
+                            if (taskStatus.status === 'completed') {
+                                transcriptionResult = taskStatus.result;
+                                showResult();
+                                showSuccess('Транскрипція завершена успішно!');
+                            } else {
+                                showError('Помилка транскрипції: ' + (taskStatus.error || 'Невідома помилка'));
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Помилка отримання статусу задачі:', error);
+                }
+            }, 2000);
+        }
+
+        // Оновлення відображення статусу задачі
+        function updateTaskStatus(taskStatus) {
+            const statusText = document.getElementById('taskStatusText');
+            const progressPercent = document.getElementById('taskProgressPercent');
+            const progressBar = document.getElementById('taskProgressBar');
+            
+            if (!statusText || !progressPercent || !progressBar) return;
+            
+            let statusMessage = '';
+            let progressColor = '#4caf50';
+            
+            switch (taskStatus.status) {
+                case 'queued':
+                    statusMessage = 'В черзі обробки...';
+                    break;
+                case 'processing':
+                    statusMessage = 'Обробляється...';
+                    break;
+                case 'completed':
+                    statusMessage = 'Завершено!';
+                    progressColor = '#4caf50';
+                    break;
+                case 'failed':
+                    statusMessage = 'Помилка обробки';
+                    progressColor = '#f44336';
+                    break;
+                case 'cancelled':
+                    statusMessage = 'Скасовано';
+                    progressColor = '#ff9800';
+                    break;
+                default:
+                    statusMessage = taskStatus.status;
+            }
+            
+            statusText.textContent = statusMessage;
+            progressPercent.textContent = `${taskStatus.progress}%`;
+            progressBar.style.width = `${taskStatus.progress}%`;
+            progressBar.style.background = progressColor;
         }
 
         // Показати результат
@@ -610,6 +991,18 @@
                 }
             });
         }
+
+        // Завантаження збереженого API ключа при старті
+        window.addEventListener('load', function() {
+            const savedApiKey = localStorage.getItem('transcription_api_key');
+            const rememberMe = localStorage.getItem('transcription_remember_me');
+            
+            if (savedApiKey && rememberMe === 'true') {
+                document.getElementById('apiKey').value = savedApiKey;
+                document.getElementById('rememberMe').checked = true;
+                authenticate();
+            }
+        });
     </script>
 </body>
 </html>

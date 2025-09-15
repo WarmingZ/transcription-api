@@ -2,7 +2,7 @@
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>🔑 OSD Admin Panel</title>
     <style>
         * {
@@ -15,7 +15,8 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 20px;
+            padding: 10px;
+            margin: 0;
         }
 
         .container {
@@ -25,6 +26,44 @@
             border-radius: 15px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.1);
             overflow: hidden;
+        }
+
+        /* Адаптивність для мобільних пристроїв */
+        @media (max-width: 768px) {
+            body {
+                padding: 5px;
+            }
+            
+            .container {
+                border-radius: 10px;
+                margin: 0;
+            }
+            
+            .header {
+                padding: 20px 15px;
+            }
+            
+            .header h1 {
+                font-size: 1.8em;
+            }
+            
+            .content {
+                padding: 20px 15px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 1.5em;
+            }
+            
+            .header p {
+                font-size: 0.9em;
+            }
+            
+            .content {
+                padding: 15px 10px;
+            }
         }
 
         .header {
@@ -51,18 +90,105 @@
             border-left: 4px solid #1976d2;
         }
 
+        .remember-me {
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .checkbox-container input[type="checkbox"] {
+            display: none;
+        }
+
+        .checkmark {
+            width: 20px;
+            height: 20px;
+            background-color: #fff;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .checkbox-container:hover .checkmark {
+            border-color: #1976d2;
+        }
+
+        .checkbox-container input[type="checkbox"]:checked + .checkmark {
+            background-color: #1976d2;
+            border-color: #1976d2;
+        }
+
+        .checkbox-container input[type="checkbox"]:checked + .checkmark:after {
+            content: "";
+            position: absolute;
+            left: 6px;
+            top: 2px;
+            width: 6px;
+            height: 10px;
+            border: solid white;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
         .input-group {
             display: flex;
             gap: 10px;
             margin-bottom: 15px;
+            flex-wrap: wrap;
         }
 
         .input-group input {
             flex: 1;
+            min-width: 200px;
             padding: 12px 15px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
             font-size: 16px;
+        }
+
+        /* Адаптивність для форм */
+        @media (max-width: 768px) {
+            .input-group {
+                flex-direction: column;
+            }
+            
+            .input-group input {
+                min-width: auto;
+                width: 100%;
+            }
+            
+            .btn {
+                width: 100%;
+                margin-top: 10px;
+            }
+            
+            .remember-me {
+                margin-top: 10px;
+            }
+            
+            .checkbox-container {
+                font-size: 13px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .checkbox-container {
+                font-size: 12px;
+            }
+            
+            .checkmark {
+                width: 18px;
+                height: 18px;
+            }
         }
 
         .btn {
@@ -95,6 +221,42 @@
             text-align: center;
         }
 
+        /* Адаптивність для статистики */
+        @media (max-width: 768px) {
+            .stats {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 15px;
+                margin-bottom: 20px;
+            }
+            
+            .stat-card {
+                padding: 20px 15px;
+            }
+            
+            .stat-number {
+                font-size: 2em;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .stats {
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+            
+            .stat-card {
+                padding: 15px 10px;
+            }
+            
+            .stat-number {
+                font-size: 1.8em;
+            }
+            
+            .stat-label {
+                font-size: 0.9em;
+            }
+        }
+
         .stat-number {
             font-size: 2.5em;
             font-weight: bold;
@@ -119,12 +281,53 @@
             width: 100%;
             border-collapse: collapse;
             background: white;
+            min-width: 600px;
         }
 
         th, td {
             padding: 12px;
             text-align: left;
             border-bottom: 1px solid #e0e0e0;
+        }
+
+        /* Адаптивність для таблиць */
+        @media (max-width: 768px) {
+            .table-container {
+                margin: 0 -15px;
+                border-radius: 0;
+            }
+            
+            th, td {
+                padding: 8px 6px;
+                font-size: 0.9em;
+            }
+            
+            .action-buttons {
+                flex-direction: column;
+                gap: 3px;
+            }
+            
+            .action-buttons .btn {
+                font-size: 0.8em;
+                padding: 4px 8px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            th, td {
+                padding: 6px 4px;
+                font-size: 0.8em;
+            }
+            
+            .key-preview {
+                font-size: 0.7em;
+                padding: 4px 6px;
+            }
+            
+            .status-badge {
+                font-size: 0.7em;
+                padding: 2px 6px;
+            }
         }
 
         th {
@@ -171,6 +374,46 @@
             border-radius: 10px;
             width: 80%;
             max-width: 600px;
+        }
+
+        /* Адаптивність для модальних вікон */
+        @media (max-width: 768px) {
+            .modal-content {
+                margin: 10% auto;
+                padding: 20px;
+                width: 90%;
+                border-radius: 10px;
+            }
+            
+            .modal-header h2 {
+                font-size: 1.3em;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .modal-content {
+                margin: 5% auto;
+                padding: 15px;
+                width: 95%;
+                border-radius: 8px;
+            }
+            
+            .modal-header h2 {
+                font-size: 1.2em;
+            }
+            
+            .modal-body {
+                font-size: 0.9em;
+            }
+            
+            .modal-footer {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .modal-footer .btn {
+                width: 100%;
+            }
         }
 
         .close {
@@ -276,6 +519,13 @@
                     <input type="password" id="masterToken" placeholder="Введіть Master токен" />
                     <button class="btn btn-secondary" onclick="authenticate()">Увійти</button>
                 </div>
+                <div class="remember-me">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="rememberMe">
+                        <span class="checkmark"></span>
+                        Запам'ятати мене
+                    </label>
+                </div>
                 <div class="error" id="authError"></div>
             </div>
 
@@ -374,6 +624,8 @@
         // Авторизація
         async function authenticate() {
             const tokenInput = document.getElementById('masterToken');
+            const rememberMe = document.getElementById('rememberMe');
+            
             if (!tokenInput) {
                 showError('Поле master токена не знайдено');
                 return;
@@ -386,6 +638,16 @@
             }
 
             masterToken = token;
+            
+            // Збереження токена якщо вибрано "Запам'ятати мене"
+            if (rememberMe && rememberMe.checked) {
+                localStorage.setItem('admin_master_token', token);
+                localStorage.setItem('admin_remember_me', 'true');
+            } else {
+                // Видалення збереженого токена якщо не вибрано
+                localStorage.removeItem('admin_master_token');
+                localStorage.removeItem('admin_remember_me');
+            }
             
             try {
                 const response = await fetch('/admin/list-keys', {
@@ -782,6 +1044,26 @@
                 if (e.key === 'Enter') generateKey();
             });
         }
+
+        // Завантаження збереженого токена при старті
+        window.addEventListener('load', function() {
+            const savedToken = localStorage.getItem('admin_master_token');
+            const rememberMe = localStorage.getItem('admin_remember_me');
+            
+            if (savedToken && rememberMe === 'true') {
+                document.getElementById('masterToken').value = savedToken;
+                document.getElementById('rememberMe').checked = true;
+                authenticate();
+            } else {
+                // Автоматичне завантаження статистики якщо є токен в URL
+                const urlParams = new URLSearchParams(window.location.search);
+                const urlToken = urlParams.get('master_token');
+                if (urlToken) {
+                    document.getElementById('masterToken').value = urlToken;
+                    authenticate();
+                }
+            }
+        });
 
         // Закрити модальні вікна при кліку поза ними
         window.onclick = function(event) {

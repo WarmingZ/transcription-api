@@ -18,11 +18,16 @@ from .diarization import SimpleDiarizationService
 class LocalTranscriptionService:
     """Сервіс для локальної транскрипції аудіо з орфографічною корекцією"""
     
-    def __init__(self):
+    def __init__(self, beam_size: int = 1, best_of: int = 1, word_timestamps: bool = True):
         self.models_loaded = False
         self.whisper_model = None
         self.diarization_service = None
         self.language_tool = None
+        
+        # Параметри продуктивності
+        self.beam_size = beam_size
+        self.best_of = best_of
+        self.word_timestamps = word_timestamps
         
         # Кешування тимчасово вимкнено
         
@@ -191,19 +196,17 @@ class LocalTranscriptionService:
         try:
             logger.info("Початок транскрипції з діаризацією...")
             
-            # Спочатку конвертуємо файл (якщо потрібно) та завантажуємо аудіо
-            processed_audio_path = self.whisper_model._convert_to_optimal_format(audio_path)
-            logger.info(f"🔄 Конвертований файл: {processed_audio_path}")
-            logger.info("Завантаження аудіо для діаризації...")
-            audio, sr = self._load_audio_cached(processed_audio_path)
+            # Конвертуємо файл та отримуємо аудіо масив напряму
+            audio, sr = self.whisper_model._convert_to_optimal_format(audio_path)
+            logger.info(f"🔄 Конвертовано аудіо: {len(audio)} зразків, {sr}Hz")
             
             # Діагностика аудіо
             audio_duration = len(audio) / sr
             logger.info(f"📊 Аудіо діагностика: тривалість={audio_duration:.2f}с, частота={sr}Hz, зразків={len(audio)}")
             logger.info(f"📊 Перші 0.5с аудіо: min={audio[:int(0.5*sr)].min():.4f}, max={audio[:int(0.5*sr)].max():.4f}, rms={np.sqrt(np.mean(audio[:int(0.5*sr)]**2)):.4f}")
             
-            # Робимо діаризацію з конвертованим файлом
-            speaker_segments = self.diarization_service.process_audio(processed_audio_path)
+            # Робимо діаризацію з аудіо масивом
+            speaker_segments = self.diarization_service.process_audio_array(audio, sr)
             
             if not speaker_segments:
                 logger.warning("Діаризація не знайшла сегменти, використовуємо просту транскрипцію")
@@ -353,9 +356,9 @@ class LocalTranscriptionService:
             segments, info = model.transcribe(
                 segment_audio,
                 language=language,
-                beam_size=1,  # Максимальна швидкість
-                word_timestamps=True,
-                vad_filter=True,  # УВІМКНЕНО для правильного виявлення початку мовлення
+                beam_size=self.beam_size,  # Використовуємо параметр конструктора
+                word_timestamps=self.word_timestamps,
+                vad_filter=SPEED_OPTIMIZED_VAD,  # Використовуємо константу з конфігу
                 vad_parameters=dict(
                     min_silence_duration_ms=300,  # Мінімальна тривалість тиші
                     speech_pad_ms=100,  # Буфер навколо мовлення
@@ -438,7 +441,7 @@ class LocalTranscriptionService:
                     language=language,
                     beam_size=beam_size,
                     word_timestamps=True,
-                    vad_filter=True,  # Завжди увімкнено для кращого виявлення
+                    vad_filter=SPEED_OPTIMIZED_VAD,  # Використовуємо константу з конфігу
                     vad_parameters=dict(
                         min_silence_duration_ms=200,  # Зменшено для кращого виявлення коротких пауз
                         speech_pad_ms=150,  # Буфер навколо мовлення

@@ -109,7 +109,7 @@ class LocalWhisperModel:
                 language=language,
                 beam_size=1,  # Мінімальний для швидкості
                 word_timestamps=False,  # Вимкнено для швидкості
-                vad_filter=True,  # УВІМКНЕНО для правильного виявлення початку мовлення
+                vad_filter=SPEED_OPTIMIZED_VAD,  # Використовуємо константу з конфігу
                 vad_parameters=dict(
                     min_silence_duration_ms=500,  # Мінімальна тривалість тиші
                     speech_pad_ms=200,  # Буфер навколо мовлення
@@ -118,7 +118,7 @@ class LocalWhisperModel:
                 best_of=1,  # Тільки один варіант
                 condition_on_previous_text=False,  # Вимкнено для швидкості
                 initial_prompt=None,  # Без попереднього тексту
-                suppress_tokens=[-1],  # Придушення спеціальних токенів
+                # suppress_tokens за замовчуванням (не вказуємо явно)
             )
             
             # Конвертуємо результат у формат, сумісний з оригінальним API
@@ -173,8 +173,9 @@ class LocalWhisperModel:
             audio, sr = librosa.load(audio_path, sr=16000, mono=True)
             return audio, 16000
     
-    def _convert_to_optimal_format(self, audio_path: str) -> str:
-        """Оптимальна конвертація для українських аудіо 8kHz (телефонна якість) з покращеною обробкою початку"""
+    def _convert_to_optimal_format(self, audio_path: str) -> tuple[np.ndarray, int]:
+        """Оптимальна конвертація для українських аудіо 8kHz (телефонна якість) з покращеною обробкою початку
+        Повертає numpy масив замість файлу для швидшої обробки"""
         try:
             logger.info(f"Конвертація файлу в оптимальний формат: {audio_path}")
             
@@ -201,18 +202,14 @@ class LocalWhisperModel:
                 audio = librosa.resample(audio, orig_sr=sr, target_sr=16000, res_type='kaiser_best')
                 sr = 16000
             
-            # Створюємо тимчасовий WAV файл (найкращий формат для Whisper)
-            temp_wav = audio_path.rsplit('.', 1)[0] + '_temp.wav'
-            
-            # Зберігаємо як WAV PCM_16 mono з покращеними параметрами
-            sf.write(temp_wav, audio, 16000, format='WAV', subtype='PCM_16')
-            
-            logger.info(f"Файл конвертовано в оптимальний формат: {temp_wav} (додано буфер тиші на початок)")
-            return temp_wav
+            logger.info(f"✅ Конвертація завершена: {len(audio)} зразків, {sr}Hz")
+            return audio, sr
             
         except Exception as e:
             logger.warning(f"Помилка конвертації в оптимальний формат: {e}")
-            return audio_path  # Повертаємо оригінальний файл
+            # Fallback: завантажуємо оригінальний файл
+            audio, sr = librosa.load(audio_path, sr=16000, mono=True)
+            return audio, sr
     
     def _convert_audio_gpu(self, audio_path: str) -> Tuple[np.ndarray, int]:
         """GPU-прискорена конвертація аудіо"""
