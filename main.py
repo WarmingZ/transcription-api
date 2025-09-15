@@ -7,6 +7,7 @@ from pydantic import BaseModel, HttpUrl
 import tempfile
 import os
 import httpx
+import time
 from typing import Optional, List, Dict, Any
 import logging
 from models import LocalTranscriptionService
@@ -68,11 +69,26 @@ class GenerateKeyResponse(BaseModel):
 class DeleteKeyRequest(BaseModel):
     api_key: str
 
+class UpdateKeyNotesRequest(BaseModel):
+    api_key: str
+    notes: str
+
+class ToggleKeyStatusRequest(BaseModel):
+    api_key: str
+
 class APIKeyInfo(BaseModel):
     key: str
     client_name: str
     created_at: str
     active: bool
+    usage_count: int
+    last_used: Optional[str]
+    total_requests: int
+    successful_requests: int
+    failed_requests: int
+    total_processing_time: float
+    average_processing_time: float
+    notes: str
 
 @app.on_event("startup")
 async def load_models():
@@ -162,12 +178,25 @@ async def transcribe_audio_file(
         
         # Транскрипція з або без діаризації
         logger.info(f"📝 Параметри запиту: model_size={model_size}, language={language}, use_diarization={use_diarization}")
-        if use_diarization:
-            logger.info(f"Початок транскрипції з діаризацією файлу: {temp_file_path}")
-            processed_result = transcription_service.transcribe_with_diarization(temp_file_path, language, model_size)
-        else:
-            logger.info(f"Початок простої транскрипції файлу: {temp_file_path}")
-            processed_result = transcription_service.transcribe_simple(temp_file_path, language, model_size)
+        start_time = time.time()
+        
+        try:
+            if use_diarization:
+                logger.info(f"Початок транскрипції з діаризацією файлу: {temp_file_path}")
+                processed_result = transcription_service.transcribe_with_diarization(temp_file_path, language, model_size)
+            else:
+                logger.info(f"Початок простої транскрипції файлу: {temp_file_path}")
+                processed_result = transcription_service.transcribe_simple(temp_file_path, language, model_size)
+            
+            # Логуємо успішне використання
+            processing_time = time.time() - start_time
+            api_key_manager.log_api_usage(api_key, success=True, processing_time=processing_time)
+            
+        except Exception as e:
+            # Логуємо невдале використання
+            processing_time = time.time() - start_time
+            api_key_manager.log_api_usage(api_key, success=False, processing_time=processing_time)
+            raise e
         
         logger.info("Транскрипція завершена успішно")
         return TranscriptionResponse(**processed_result)
@@ -234,10 +263,23 @@ async def transcribe_with_diarization(
         # Транскрипція з діаризацією
         logger.info(f"📝 Параметри запиту: model_size={model_size}, language={language}")
         logger.info(f"Початок транскрипції з діаризацією файлу: {temp_file_path}")
-        processed_result = transcription_service.transcribe_with_diarization(temp_file_path, language, model_size)
+        start_time = time.time()
         
-        logger.info("Транскрипція з діаризацією завершена успішно")
-        return TranscriptionResponse(**processed_result)
+        try:
+            processed_result = transcription_service.transcribe_with_diarization(temp_file_path, language, model_size)
+            
+            # Логуємо успішне використання
+            processing_time = time.time() - start_time
+            api_key_manager.log_api_usage(api_key, success=True, processing_time=processing_time)
+            
+            logger.info("Транскрипція з діаризацією завершена успішно")
+            return TranscriptionResponse(**processed_result)
+            
+        except Exception as e:
+            # Логуємо невдале використання
+            processing_time = time.time() - start_time
+            api_key_manager.log_api_usage(api_key, success=False, processing_time=processing_time)
+            raise e
         
     except HTTPException:
         raise
@@ -314,6 +356,69 @@ async def list_api_keys(master_token: str = Depends(verify_master_token)):
     except Exception as e:
         logger.error(f"Помилка отримання списку ключів: {e}")
         raise HTTPException(status_code=500, detail=f"Помилка отримання списку: {str(e)}")
+
+@app.post("/admin/update-key-notes")
+async def update_key_notes(
+    request: UpdateKeyNotesRequest,
+    master_token: str = Depends(verify_master_token)
+):
+    """Оновлює нотатки для API ключа (потребує master токен)"""
+    try:
+        success = api_key_manager.update_api_key_notes(request.api_key, request.notes)
+        if success:
+            return {"message": "Нотатки успішно оновлено"}
+        else:
+            raise HTTPException(status_code=404, detail="API ключ не знайдено")
+    except Exception as e:
+        logger.error(f"Помилка оновлення нотаток: {e}")
+        raise HTTPException(status_code=500, detail=f"Помилка оновлення нотаток: {str(e)}")
+
+@app.post("/admin/toggle-key-status")
+async def toggle_key_status(
+    request: ToggleKeyStatusRequest,
+    master_token: str = Depends(verify_master_token)
+):
+    """Перемикає статус API ключа (потребує master токен)"""
+    try:
+        success = api_key_manager.toggle_api_key_status(request.api_key)
+        if success:
+            key_info = api_key_manager.get_api_key_info(request.api_key)
+            status = "активний" if key_info.get("active", True) else "неактивний"
+            return {"message": f"API ключ тепер {status}"}
+        else:
+            raise HTTPException(status_code=404, detail="API ключ не знайдено")
+    except Exception as e:
+        logger.error(f"Помилка зміни статусу ключа: {e}")
+        raise HTTPException(status_code=500, detail=f"Помилка зміни статусу: {str(e)}")
+
+@app.get("/admin/key-details/{api_key}")
+async def get_key_details(
+    api_key: str,
+    master_token: str = Depends(verify_master_token)
+):
+    """Отримує детальну інформацію про API ключ (потребує master токен)"""
+    try:
+        key_info = api_key_manager.get_api_key_info(api_key)
+        if key_info:
+            return {
+                "key": api_key,
+                "client_name": key_info["client_name"],
+                "created_at": key_info["created_at"],
+                "active": key_info.get("active", True),
+                "usage_count": key_info.get("usage_count", 0),
+                "last_used": key_info.get("last_used"),
+                "total_requests": key_info.get("total_requests", 0),
+                "successful_requests": key_info.get("successful_requests", 0),
+                "failed_requests": key_info.get("failed_requests", 0),
+                "total_processing_time": round(key_info.get("total_processing_time", 0), 2),
+                "average_processing_time": round(key_info.get("total_processing_time", 0) / max(key_info.get("total_requests", 1), 1), 2),
+                "notes": key_info.get("notes", "")
+            }
+        else:
+            raise HTTPException(status_code=404, detail="API ключ не знайдено")
+    except Exception as e:
+        logger.error(f"Помилка отримання деталей ключа: {e}")
+        raise HTTPException(status_code=500, detail=f"Помилка отримання деталей: {str(e)}")
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(request: Request):
@@ -510,8 +615,13 @@ async def admin_panel(request: Request):
 
 @app.get("/admin-panel")
 async def admin_panel_static():
-    """Статична адмін панель"""
+    """Об'єднана адмін панель з розширеними функціями"""
     return FileResponse("static/admin.html")
+
+@app.get("/transcription")
+async def transcription_page():
+    """Веб-сторінка для транскрипції аудіо/відео"""
+    return FileResponse("static/transcription.html")
 
 @app.get("/api")
 async def api_info():
@@ -527,10 +637,14 @@ async def api_info():
             "docs": "/docs (GET, public)",
             "api_info": "/api (GET, public)",
             "admin": "/admin (GET, requires master token)",
-            "admin_panel": "/admin-panel (GET, static HTML page)",
+            "admin_panel": "/admin-panel (GET, unified admin panel with advanced features)",
+            "transcription": "/transcription (GET, web interface for audio/video transcription)",
             "admin_generate_key": "/admin/generate-key (POST, requires master token)",
             "admin_delete_key": "/admin/delete-key (POST, requires master token)",
-            "admin_list_keys": "/admin/list-keys (GET, requires master token)"
+            "admin_list_keys": "/admin/list-keys (GET, requires master token)",
+            "admin_update_notes": "/admin/update-key-notes (POST, requires master token)",
+            "admin_toggle_status": "/admin/toggle-key-status (POST, requires master token)",
+            "admin_key_details": "/admin/key-details/{api_key} (GET, requires master token)"
         },
         "features": [
             "Локальна транскрипція (faster-whisper)",

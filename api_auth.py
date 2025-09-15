@@ -74,7 +74,14 @@ class APIKeyManager:
         api_keys[api_key] = {
             "client_name": client_name,
             "created_at": datetime.now().isoformat(),
-            "active": True
+            "active": True,
+            "usage_count": 0,
+            "last_used": None,
+            "total_requests": 0,
+            "successful_requests": 0,
+            "failed_requests": 0,
+            "total_processing_time": 0.0,
+            "notes": ""
         }
         
         self._save_api_keys(api_keys)
@@ -111,7 +118,15 @@ class APIKeyManager:
                 "key": key,
                 "client_name": info["client_name"],
                 "created_at": info["created_at"],
-                "active": info.get("active", True)
+                "active": info.get("active", True),
+                "usage_count": info.get("usage_count", 0),
+                "last_used": info.get("last_used"),
+                "total_requests": info.get("total_requests", 0),
+                "successful_requests": info.get("successful_requests", 0),
+                "failed_requests": info.get("failed_requests", 0),
+                "total_processing_time": round(info.get("total_processing_time", 0), 2),
+                "average_processing_time": round(info.get("total_processing_time", 0) / max(info.get("total_requests", 1), 1), 2),
+                "notes": info.get("notes", "")
             })
         return result
     
@@ -119,11 +134,52 @@ class APIKeyManager:
         """Отримує статистику API ключів"""
         api_keys = self._load_api_keys()
         active_count = sum(1 for info in api_keys.values() if info.get("active", True))
+        total_requests = sum(info.get("total_requests", 0) for info in api_keys.values())
+        total_processing_time = sum(info.get("total_processing_time", 0) for info in api_keys.values())
+        
         return {
             "total_keys": len(api_keys),
             "active_keys": active_count,
-            "inactive_keys": len(api_keys) - active_count
+            "inactive_keys": len(api_keys) - active_count,
+            "total_requests": total_requests,
+            "total_processing_time": round(total_processing_time, 2),
+            "average_processing_time": round(total_processing_time / max(total_requests, 1), 2)
         }
+    
+    def log_api_usage(self, api_key: str, success: bool = True, processing_time: float = 0.0):
+        """Логує використання API ключа"""
+        api_keys = self._load_api_keys()
+        if api_key in api_keys:
+            api_keys[api_key]["usage_count"] = api_keys[api_key].get("usage_count", 0) + 1
+            api_keys[api_key]["last_used"] = datetime.now().isoformat()
+            api_keys[api_key]["total_requests"] = api_keys[api_key].get("total_requests", 0) + 1
+            
+            if success:
+                api_keys[api_key]["successful_requests"] = api_keys[api_key].get("successful_requests", 0) + 1
+            else:
+                api_keys[api_key]["failed_requests"] = api_keys[api_key].get("failed_requests", 0) + 1
+            
+            api_keys[api_key]["total_processing_time"] = api_keys[api_key].get("total_processing_time", 0) + processing_time
+            
+            self._save_api_keys(api_keys)
+    
+    def update_api_key_notes(self, api_key: str, notes: str) -> bool:
+        """Оновлює нотатки для API ключа"""
+        api_keys = self._load_api_keys()
+        if api_key in api_keys:
+            api_keys[api_key]["notes"] = notes
+            self._save_api_keys(api_keys)
+            return True
+        return False
+    
+    def toggle_api_key_status(self, api_key: str) -> bool:
+        """Перемикає статус API ключа (активний/неактивний)"""
+        api_keys = self._load_api_keys()
+        if api_key in api_keys:
+            api_keys[api_key]["active"] = not api_keys[api_key].get("active", True)
+            self._save_api_keys(api_keys)
+            return True
+        return False
     
     def print_startup_info(self):
         """Виводить інформацію про master токен при запуску"""

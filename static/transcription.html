@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSD Audio Transcription</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .auth-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            border-left: 4px solid #1976d2;
+        }
+
+        .form-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .input-group input, .input-group select {
+            flex: 1;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .input-group label {
+            min-width: 120px;
+            font-weight: 600;
+        }
+
+        .file-upload {
+            border: 2px dashed #1976d2;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            background: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 20px;
+        }
+
+        .file-upload:hover {
+            background: #e3f2fd;
+            border-color: #1565c0;
+        }
+
+        .file-upload.dragover {
+            background: #e3f2fd;
+            border-color: #1565c0;
+        }
+
+        .file-upload input[type="file"] {
+            display: none;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary { background: #4caf50; color: white; }
+        .btn-secondary { background: #2196f3; color: white; }
+        .btn-danger { background: #f44336; color: white; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+        }
+
+        .result-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 12px;
+            margin-top: 30px;
+            display: none;
+        }
+
+        .result-text {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .segments {
+            margin-top: 20px;
+        }
+
+        .segment {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border-left: 4px solid #1976d2;
+        }
+
+        .segment-header {
+            font-weight: bold;
+            color: #1976d2;
+            margin-bottom: 5px;
+        }
+
+        .segment-time {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #1976d2;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+        }
+
+        .file-info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+        }
+
+        .copy-btn {
+            background: #ff9800;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .copy-btn:hover {
+            background: #f57c00;
+        }
+
+        .speaker-label {
+            background: #4caf50;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-right: 10px;
+        }
+
+        .speaker-operator { background: #2196f3; }
+        .speaker-client { background: #ff9800; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 Ukrainian Audio Transcription</h1>
+            <p>Транскрипція українського аудіо/відео з визначенням дикторів</p>
+        </div>
+
+        <div class="content">
+            <!-- Авторизація -->
+            <div class="auth-section">
+                <h3>🔐 Авторизація</h3>
+                <div class="input-group">
+                    <label for="apiKey">API Ключ:</label>
+                    <input type="password" id="apiKey" placeholder="Введіть ваш API ключ" />
+                    <button class="btn btn-secondary" onclick="authenticate()">Перевірити</button>
+                </div>
+                <div class="error" id="authError"></div>
+            </div>
+
+            <!-- Форма транскрипції -->
+            <div class="form-section" id="transcriptionSection" style="display: none;">
+                <h3>📁 Завантаження файлу</h3>
+                
+                <div class="file-upload" id="fileUpload">
+                    <input type="file" id="fileInput" accept="audio/*,video/*,.mp3,.wav,.m4a,.flac,.ogg,.mp4,.avi,.mov,.mkv" />
+                    <div>
+                        <h4>📎 Перетягніть файл сюди або клікніть для вибору</h4>
+                        <p>Підтримувані формати: MP3, WAV, M4A, FLAC, OGG, MP4, AVI, MOV, MKV</p>
+                    </div>
+                </div>
+
+                <div class="file-info" id="fileInfo">
+                    <h4>📄 Інформація про файл</h4>
+                    <div id="fileDetails"></div>
+                </div>
+
+                <h3>⚙️ Налаштування</h3>
+                
+                <div class="input-group">
+                    <label for="language">Мова:</label>
+                    <select id="language">
+                        <option value="uk">Українська</option>
+                        <option value="en">English</option>
+                        <option value="ru">Русский</option>
+                        <option value="pl">Polski</option>
+                        <option value="de">Deutsch</option>
+                        <option value="fr">Français</option>
+                        <option value="es">Español</option>
+                        <option value="it">Italiano</option>
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label for="modelSize">Модель:</label>
+                    <select id="modelSize">
+                        <option value="tiny">Tiny (найшвидша)</option>
+                        <option value="base">Base</option>
+                        <option value="small" selected>Small (рекомендована)</option>
+                        <option value="medium">Medium</option>
+                        <option value="large">Large (найточніша)</option>
+                        <option value="auto">Auto</option>
+                    </select>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="useDiarization" />
+                    <label for="useDiarization">Використовувати діаризацію (Оператор/Клієнт)</label>
+                </div>
+
+                <div class="input-group">
+                    <button class="btn btn-primary" id="transcribeBtn" onclick="startTranscription()" disabled>
+                        🎤 Почати транскрипцію
+                    </button>
+                </div>
+
+                <div class="loading" id="transcriptionLoading">
+                    <div class="spinner"></div>
+                    <p>Обробка файлу... Це може зайняти кілька хвилин</p>
+                </div>
+            </div>
+
+            <!-- Результати -->
+            <div class="result-section" id="resultSection">
+                <h3>📝 Результат транскрипції</h3>
+                
+                <div class="input-group">
+                    <button class="copy-btn" onclick="copyToClipboard()">📋 Копіювати текст</button>
+                    <button class="copy-btn" onclick="downloadResult()">💾 Завантажити результат</button>
+                </div>
+
+                <div class="result-text" id="resultText"></div>
+                
+                <div class="segments" id="segmentsContainer"></div>
+            </div>
+
+            <!-- Повідомлення -->
+            <div class="error" id="errorMessage"></div>
+            <div class="success" id="successMessage"></div>
+        </div>
+    </div>
+
+    <script>
+        let apiKey = '';
+        let selectedFile = null;
+        let transcriptionResult = null;
+
+        // Авторизація
+        async function authenticate() {
+            const apiKeyInput = document.getElementById('apiKey');
+            if (!apiKeyInput) {
+                showError('Поле API ключа не знайдено');
+                return;
+            }
+            
+            const key = apiKeyInput.value.trim();
+            if (!key) {
+                showError('Введіть API ключ');
+                return;
+            }
+
+            apiKey = key;
+            
+            try {
+                const response = await fetch('/health');
+                if (response.ok) {
+                    showTranscriptionSection();
+                    hideError();
+                    showSuccess('API ключ прийнято! Можете почати транскрипцію.');
+                } else {
+                    showError('Помилка підключення до сервера');
+                }
+            } catch (error) {
+                showError('Помилка підключення: ' + error.message);
+            }
+        }
+
+        // Показати секцію транскрипції
+        function showTranscriptionSection() {
+            const authSection = document.getElementById('authSection');
+            const transcriptionSection = document.getElementById('transcriptionSection');
+            
+            if (authSection) authSection.style.display = 'none';
+            if (transcriptionSection) transcriptionSection.style.display = 'block';
+        }
+
+        // Налаштування drag & drop
+        const fileUpload = document.getElementById('fileUpload');
+        const fileInput = document.getElementById('fileInput');
+
+        fileUpload.addEventListener('click', () => fileInput.click());
+        fileUpload.addEventListener('dragover', handleDragOver);
+        fileUpload.addEventListener('dragleave', handleDragLeave);
+        fileUpload.addEventListener('drop', handleDrop);
+        fileInput.addEventListener('change', handleFileSelect);
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            fileUpload.classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            fileUpload.classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            fileUpload.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        }
+
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        }
+
+        function handleFile(file) {
+            selectedFile = file;
+            const fileInfo = document.getElementById('fileInfo');
+            const fileDetails = document.getElementById('fileDetails');
+            const transcribeBtn = document.getElementById('transcribeBtn');
+            
+            fileDetails.innerHTML = `
+                <p><strong>Назва:</strong> ${file.name}</p>
+                <p><strong>Розмір:</strong> ${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                <p><strong>Тип:</strong> ${file.type || 'Невідомий'}</p>
+            `;
+            
+            fileInfo.style.display = 'block';
+            transcribeBtn.disabled = false;
+        }
+
+        // Почати транскрипцію
+        async function startTranscription() {
+            if (!selectedFile) {
+                showError('Виберіть файл для транскрипції');
+                return;
+            }
+
+            const language = document.getElementById('language').value;
+            const modelSize = document.getElementById('modelSize').value;
+            const useDiarization = document.getElementById('useDiarization').checked;
+
+            showLoading('transcriptionLoading');
+            hideError();
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('language', language);
+            formData.append('model_size', modelSize);
+            formData.append('use_diarization', useDiarization);
+
+            try {
+                const endpoint = useDiarization ? '/transcribe-with-diarization' : '/transcribe';
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: formData
+                });
+
+                if (response.ok) {
+                    transcriptionResult = await response.json();
+                    showResult();
+                    showSuccess('Транскрипція завершена успішно!');
+                } else {
+                    const errorData = await response.json();
+                    showError('Помилка транскрипції: ' + (errorData.detail || 'Невідома помилка'));
+                }
+            } catch (error) {
+                showError('Помилка підключення: ' + error.message);
+            } finally {
+                hideLoading('transcriptionLoading');
+            }
+        }
+
+        // Показати результат
+        function showResult() {
+            if (!transcriptionResult) return;
+
+            const resultSection = document.getElementById('resultSection');
+            const resultText = document.getElementById('resultText');
+            const segmentsContainer = document.getElementById('segmentsContainer');
+
+            resultText.textContent = transcriptionResult.text;
+            resultSection.style.display = 'block';
+
+            // Показати сегменти
+            if (transcriptionResult.segments && transcriptionResult.segments.length > 0) {
+                segmentsContainer.innerHTML = '<h4>📊 Сегменти</h4>';
+                
+                transcriptionResult.segments.forEach((segment, index) => {
+                    const segmentDiv = document.createElement('div');
+                    segmentDiv.className = 'segment';
+                    
+                    let speakerLabel = '';
+                    if (segment.speaker) {
+                        const speakerClass = segment.speaker === 'Оператор' ? 'speaker-operator' : 'speaker-client';
+                        speakerLabel = `<span class="speaker-label ${speakerClass}">${segment.speaker}</span>`;
+                    }
+                    
+                    segmentDiv.innerHTML = `
+                        <div class="segment-header">${speakerLabel}Сегмент ${index + 1}</div>
+                        <div class="segment-time">${formatTime(segment.start)} - ${formatTime(segment.end)}</div>
+                        <div>${segment.text}</div>
+                    `;
+                    
+                    segmentsContainer.appendChild(segmentDiv);
+                });
+            }
+
+            // Прокрутити до результату
+            resultSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Форматування часу
+        function formatTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = Math.floor(seconds % 60);
+            return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+        }
+
+        // Копіювати в буфер обміну
+        async function copyToClipboard() {
+            if (!transcriptionResult) return;
+            
+            try {
+                await navigator.clipboard.writeText(transcriptionResult.text);
+                showSuccess('Текст скопійовано в буфер обміну!');
+            } catch (error) {
+                showError('Не вдалося скопіювати текст');
+            }
+        }
+
+        // Завантажити результат
+        function downloadResult() {
+            if (!transcriptionResult) return;
+            
+            const data = {
+                text: transcriptionResult.text,
+                segments: transcriptionResult.segments,
+                speakers: transcriptionResult.speakers,
+                duration: transcriptionResult.duration,
+                language: transcriptionResult.language,
+                diarization_type: transcriptionResult.diarization_type,
+                timestamp: new Date().toISOString()
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `transcription_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showSuccess('Результат завантажено!');
+        }
+
+        // Допоміжні функції
+        function showLoading(elementId) {
+            const element = document.getElementById(elementId);
+            if (element) element.style.display = 'block';
+        }
+
+        function hideLoading(elementId) {
+            const element = document.getElementById(elementId);
+            if (element) element.style.display = 'none';
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            if (errorDiv) {
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+                setTimeout(() => hideError(), 5000);
+            }
+        }
+
+        function hideError() {
+            const errorDiv = document.getElementById('errorMessage');
+            if (errorDiv) errorDiv.style.display = 'none';
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.getElementById('successMessage');
+            if (successDiv) {
+                successDiv.textContent = message;
+                successDiv.style.display = 'block';
+                setTimeout(() => hideSuccess(), 3000);
+            }
+        }
+
+        function hideSuccess() {
+            const successDiv = document.getElementById('successMessage');
+            if (successDiv) successDiv.style.display = 'none';
+        }
+
+        // Обробка Enter для API ключа
+        const apiKeyInput = document.getElementById('apiKey');
+        if (apiKeyInput) {
+            apiKeyInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    authenticate();
+                }
+            });
+        }
+    </script>
+</body>
+</html>
