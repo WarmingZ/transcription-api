@@ -57,7 +57,7 @@ SUPPORTED_MODELS = ['tiny', 'base', 'small', 'medium', 'large']
 QUANTIZED_MODELS = {
     'tiny': 'tiny',    # tiny + int8 = quantized
     'base': 'base',    # base + int8 = quantized  
-    'small': 'small',  # small + int8 = quantized (рекомендована ChatGPT)
+    'small': 'small',  # small + int8 = quantized 
     'medium': 'medium', # medium + int8 = quantized
     'large': 'large'   # large + int8 = quantized
 }

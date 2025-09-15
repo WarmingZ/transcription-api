@@ -489,6 +489,11 @@
             #taskStatusText, #taskProgressPercent {
                 font-size: 0.9em;
             }
+            
+            #taskStatus .grid {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
         }
 
         @media (max-width: 480px) {
@@ -510,6 +515,24 @@
             
             #taskProgressBar {
                 height: 15px;
+            }
+            
+            #taskStatus .grid {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+            
+            #taskStatus .grid > div {
+                padding: 8px;
+                font-size: 0.8em;
+            }
+            
+            #queueInfo {
+                font-size: 0.8em;
+            }
+            
+            #queueInfo div {
+                margin-bottom: 3px;
             }
         }
     </style>
@@ -622,6 +645,8 @@
         let apiKey = '';
         let selectedFile = null;
         let transcriptionResult = null;
+        let taskStartTime = null;
+        let audioFileDuration = null;
 
         // Авторизація
         async function authenticate() {
@@ -739,6 +764,15 @@
 
             showLoading('transcriptionLoading');
             hideError();
+            
+            // Очищаємо попередні результати та статус
+            const resultSection = document.getElementById('resultSection');
+            if (resultSection) resultSection.style.display = 'none';
+            
+            const existingStatus = document.getElementById('taskStatus');
+            if (existingStatus) {
+                existingStatus.remove();
+            }
 
             const formData = new FormData();
             formData.append('file', selectedFile);
@@ -773,8 +807,54 @@
             }
         }
 
+        // Отримання тривалості аудіо файлу
+        function getAudioDuration(file) {
+            return new Promise((resolve) => {
+                const audio = new Audio();
+                audio.addEventListener('loadedmetadata', () => {
+                    resolve(audio.duration);
+                });
+                audio.addEventListener('error', () => {
+                    resolve(null); // Якщо не вдалося завантажити
+                });
+                audio.src = URL.createObjectURL(file);
+            });
+        }
+
+        // Форматування часу в MM:SS
+        function formatTime(seconds) {
+            if (!seconds || seconds === 0) return '--:--';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Отримання інформації про чергу
+        async function getQueueInfo() {
+            try {
+                const response = await fetch('/health');
+                if (response.ok) {
+                    const healthData = await response.json();
+                    return {
+                        queueSize: healthData.queue_size || 0,
+                        activeTasks: healthData.active_tasks || 0,
+                        maxWorkers: healthData.max_workers || 0
+                    };
+                }
+            } catch (error) {
+                console.error('Помилка отримання інформації про чергу:', error);
+            }
+            return { queueSize: 0, activeTasks: 0, maxWorkers: 0 };
+        }
+
         // Відстеження статусу задачі
         async function trackTask(taskId) {
+            // Видаляємо попередній статус якщо він існує
+            const existingStatus = document.getElementById('taskStatus');
+            if (existingStatus) {
+                existingStatus.remove();
+            }
+            
             const statusDiv = document.createElement('div');
             statusDiv.id = 'taskStatus';
             statusDiv.innerHTML = `
@@ -788,6 +868,28 @@
                         <div style="background: #ddd; border-radius: 10px; height: 20px; overflow: hidden;">
                             <div id="taskProgressBar" style="background: #4caf50; height: 100%; width: 0%; transition: width 0.3s;"></div>
                         </div>
+                        <div class="grid" style="margin-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div style="background: white; padding: 10px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 0.8em; color: #666; margin-bottom: 5px;">⏱️ Час обробки</div>
+                                <div id="processingTime" style="font-weight: bold; color: #1976d2;">--:--</div>
+                            </div>
+                            <div style="background: white; padding: 10px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 0.8em; color: #666; margin-bottom: 5px;">🎵 Тривалість аудіо</div>
+                                <div id="audioDuration" style="font-weight: bold; color: #4caf50;">--:--</div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 15px; background: white; padding: 10px; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 0.8em; color: #666; margin-bottom: 5px;">⚡ Швидкість обробки</div>
+                            <div id="processingSpeed" style="font-weight: bold; color: #ff9800;">--x</div>
+                        </div>
+                        <div style="margin-top: 15px; background: white; padding: 10px; border-radius: 8px;">
+                            <div style="font-size: 0.8em; color: #666; margin-bottom: 5px;">📊 Інформація про чергу</div>
+                            <div id="queueInfo" style="font-size: 0.9em; color: #333;">
+                                <div>🔄 Задач в черзі: <span id="queueSize">--</span></div>
+                                <div>⚙️ Активних задач: <span id="activeTasks">--</span></div>
+                                <div>👥 Макс. воркерів: <span id="maxWorkers">--</span></div>
+                            </div>
+                        </div>
                         <div style="margin-top: 10px; font-size: 0.9em; color: #666;">
                             Task ID: <code>${taskId}</code>
                         </div>
@@ -799,6 +901,26 @@
             const resultSection = document.getElementById('resultSection');
             resultSection.parentNode.insertBefore(statusDiv, resultSection);
             
+            // Встановлюємо час початку та отримуємо тривалість аудіо
+            taskStartTime = Date.now();
+            if (selectedFile) {
+                audioFileDuration = await getAudioDuration(selectedFile);
+                const durationElement = document.getElementById('audioDuration');
+                if (durationElement) {
+                    durationElement.textContent = formatTime(audioFileDuration);
+                }
+            }
+            
+            // Оновлюємо інформацію про чергу
+            const queueInfo = await getQueueInfo();
+            const queueSizeElement = document.getElementById('queueSize');
+            const activeTasksElement = document.getElementById('activeTasks');
+            const maxWorkersElement = document.getElementById('maxWorkers');
+            
+            if (queueSizeElement) queueSizeElement.textContent = queueInfo.queueSize;
+            if (activeTasksElement) activeTasksElement.textContent = queueInfo.activeTasks;
+            if (maxWorkersElement) maxWorkersElement.textContent = queueInfo.maxWorkers;
+            
             // Оновлюємо статус кожні 2 секунди
             const interval = setInterval(async () => {
                 try {
@@ -807,19 +929,39 @@
                         const taskStatus = await response.json();
                         updateTaskStatus(taskStatus);
                         
-                        if (taskStatus.status === 'completed' || taskStatus.status === 'failed') {
+                        // Оновлюємо інформацію про чергу кожні 4 секунди (кожен другий раз)
+                        if (Math.floor(Date.now() / 2000) % 2 === 0) {
+                            const queueInfo = await getQueueInfo();
+                            const queueSizeElement = document.getElementById('queueSize');
+                            const activeTasksElement = document.getElementById('activeTasks');
+                            
+                            if (queueSizeElement) queueSizeElement.textContent = queueInfo.queueSize;
+                            if (activeTasksElement) activeTasksElement.textContent = queueInfo.activeTasks;
+                        }
+                        
+                        if (taskStatus.status === 'completed' || taskStatus.status === 'failed' || taskStatus.status === 'cancelled') {
                             clearInterval(interval);
                             if (taskStatus.status === 'completed') {
                                 transcriptionResult = taskStatus.result;
                                 showResult();
                                 showSuccess('Транскрипція завершена успішно!');
-                            } else {
+                            } else if (taskStatus.status === 'failed') {
                                 showError('Помилка транскрипції: ' + (taskStatus.error || 'Невідома помилка'));
+                            } else if (taskStatus.status === 'cancelled') {
+                                showError('Транскрипція скасована');
                             }
+                        }
+                    } else {
+                        console.error('Помилка отримання статусу задачі:', response.status, response.statusText);
+                        // Якщо задача не знайдена, можливо вона була видалена
+                        if (response.status === 404) {
+                            clearInterval(interval);
+                            showError('Задача не знайдена. Можливо, вона була видалена або застаріла.');
                         }
                     }
                 } catch (error) {
                     console.error('Помилка отримання статусу задачі:', error);
+                    // Не зупиняємо інтервал при мережевих помилках, спробуємо ще раз
                 }
             }, 2000);
         }
@@ -829,6 +971,8 @@
             const statusText = document.getElementById('taskStatusText');
             const progressPercent = document.getElementById('taskProgressPercent');
             const progressBar = document.getElementById('taskProgressBar');
+            const processingTimeElement = document.getElementById('processingTime');
+            const processingSpeedElement = document.getElementById('processingSpeed');
             
             if (!statusText || !progressPercent || !progressBar) return;
             
@@ -838,9 +982,11 @@
             switch (taskStatus.status) {
                 case 'queued':
                     statusMessage = 'В черзі обробки...';
+                    progressColor = '#2196f3';
                     break;
                 case 'processing':
                     statusMessage = 'Обробляється...';
+                    progressColor = '#ff9800';
                     break;
                 case 'completed':
                     statusMessage = 'Завершено!';
@@ -852,16 +998,34 @@
                     break;
                 case 'cancelled':
                     statusMessage = 'Скасовано';
-                    progressColor = '#ff9800';
+                    progressColor = '#9e9e9e';
                     break;
                 default:
-                    statusMessage = taskStatus.status;
+                    statusMessage = taskStatus.status || 'Невідомий статус';
+                    progressColor = '#9e9e9e';
             }
             
             statusText.textContent = statusMessage;
             progressPercent.textContent = `${taskStatus.progress}%`;
             progressBar.style.width = `${taskStatus.progress}%`;
             progressBar.style.background = progressColor;
+            
+            // Оновлюємо час обробки та швидкість
+            if (taskStartTime && processingTimeElement) {
+                const currentTime = Date.now();
+                const processingTimeSeconds = (currentTime - taskStartTime) / 1000;
+                processingTimeElement.textContent = formatTime(processingTimeSeconds);
+                
+                // Розраховуємо швидкість обробки
+                if (audioFileDuration && processingSpeedElement && processingTimeSeconds > 0) {
+                    const speed = audioFileDuration / processingTimeSeconds;
+                    if (speed >= 1) {
+                        processingSpeedElement.textContent = `${speed.toFixed(1)}x`;
+                    } else {
+                        processingSpeedElement.textContent = `${(1/speed).toFixed(1)}x повільніше`;
+                    }
+                }
+            }
         }
 
         // Показати результат
@@ -872,7 +1036,18 @@
             const resultText = document.getElementById('resultText');
             const segmentsContainer = document.getElementById('segmentsContainer');
 
-            resultText.textContent = transcriptionResult.text;
+            // Додаємо інформацію про час обробки до тексту
+            let resultTextWithStats = transcriptionResult.text;
+            if (taskStartTime && audioFileDuration) {
+                const totalProcessingTime = (Date.now() - taskStartTime) / 1000;
+                const speed = audioFileDuration / totalProcessingTime;
+                resultTextWithStats += `\n\n📊 Статистика обробки:\n`;
+                resultTextWithStats += `⏱️ Час обробки: ${formatTime(totalProcessingTime)}\n`;
+                resultTextWithStats += `🎵 Тривалість аудіо: ${formatTime(audioFileDuration)}\n`;
+                resultTextWithStats += `⚡ Швидкість: ${speed >= 1 ? speed.toFixed(1) + 'x' : (1/speed).toFixed(1) + 'x повільніше'}\n`;
+            }
+
+            resultText.textContent = resultTextWithStats;
             resultSection.style.display = 'block';
 
             // Показати сегменти
@@ -891,6 +1066,21 @@
                     
                     segmentsContainer.appendChild(segmentDiv);
                 });
+                
+                // Додаємо статистику обробки в кінець сегментів
+                if (taskStartTime && audioFileDuration) {
+                    const totalProcessingTime = (Date.now() - taskStartTime) / 1000;
+                    const speed = audioFileDuration / totalProcessingTime;
+                    const statsDiv = document.createElement('div');
+                    statsDiv.className = 'segment';
+                    statsDiv.style.background = '#f0f8ff';
+                    statsDiv.style.borderLeft = '4px solid #1976d2';
+                    statsDiv.innerHTML = `
+                        <div class="segment-header">📊 Статистика обробки</div>
+                        <div class="segment-time">⏱️ Час обробки: ${formatTime(totalProcessingTime)} | 🎵 Тривалість аудіо: ${formatTime(audioFileDuration)} | ⚡ Швидкість: ${speed >= 1 ? speed.toFixed(1) + 'x' : (1/speed).toFixed(1) + 'x повільніше'}</div>
+                    `;
+                    segmentsContainer.appendChild(statsDiv);
+                }
             }
 
             // Прокрутити до результату

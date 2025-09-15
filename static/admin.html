@@ -547,6 +547,10 @@
                     <div class="stat-number" id="avgProcessingTime">0</div>
                     <div class="stat-label">Середній час (сек)</div>
                 </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="avgProcessingSpeed">0</div>
+                    <div class="stat-label">Середня швидкість</div>
+                </div>
             </div>
 
             <!-- Створення ключа -->
@@ -692,11 +696,20 @@
             const activeKeys = document.getElementById('activeKeys');
             const totalRequests = document.getElementById('totalRequests');
             const avgProcessingTime = document.getElementById('avgProcessingTime');
+            const avgProcessingSpeed = document.getElementById('avgProcessingSpeed');
             
             if (totalKeys) totalKeys.textContent = stats.total_keys;
             if (activeKeys) activeKeys.textContent = stats.active_keys;
             if (totalRequests) totalRequests.textContent = stats.total_requests || 0;
             if (avgProcessingTime) avgProcessingTime.textContent = stats.average_processing_time || 0;
+            
+            // Розраховуємо середню швидкість обробки
+            if (avgProcessingSpeed && stats.average_processing_time && stats.average_audio_duration) {
+                const avgSpeed = stats.average_audio_duration / stats.average_processing_time;
+                avgProcessingSpeed.textContent = avgSpeed >= 1 ? avgSpeed.toFixed(1) + 'x' : (1/avgSpeed).toFixed(1) + 'x повільніше';
+            } else if (avgProcessingSpeed) {
+                avgProcessingSpeed.textContent = '0';
+            }
         }
 
         // Завантажити список ключів
