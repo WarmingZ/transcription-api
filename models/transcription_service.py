@@ -11,7 +11,7 @@ import librosa
 import soundfile as sf
 import time
 
-from .config import logger, LANGUAGE_TOOL_AVAILABLE, SUPPORTED_MODELS, ENABLE_DIARIZATION, DIARIZATION_MAX_WORKERS
+from .config import logger, LANGUAGE_TOOL_AVAILABLE, SUPPORTED_MODELS, QUANTIZED_MODELS, ENABLE_DIARIZATION, DIARIZATION_MAX_WORKERS
 from .whisper_model import LocalWhisperModel
 from .diarization import SimpleDiarizationService
 
@@ -72,23 +72,24 @@ class LocalTranscriptionService:
                         except:
                             model_size = "small"  # Fallback для GPU
                     else:
-                        # Для CPU використовуємо швидшу модель
+                        # Для CPU використовуємо quantized моделі (рекомендація ChatGPT)
                         if memory_gb >= 8 and cpu_count >= 4:
-                            model_size = "base"  # Швидше для CPU
-                            logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується base модель (швидше)")
+                            model_size = "small"  # small + int8 = quantized - оптимально для CPU
+                            logger.info(f"🚀 Сервер {memory_gb:.1f}GB RAM + {cpu_count} CPU - використовується small модель (quantized)")
                         elif memory_gb >= 6:
-                            model_size = "base"  # Швидше для CPU
-                            logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується base модель")
+                            model_size = "base"  # base + int8 = quantized
+                            logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується base модель (quantized)")
                         else:
-                            model_size = "base"  # Для менших серверів
-                            logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується base модель")
+                            model_size = "tiny"  # tiny + int8 = quantized для малих серверів
+                            logger.info(f"💾 Сервер {memory_gb:.1f}GB RAM - використовується tiny модель (quantized)")
                 except:
                     model_size = "base"
             elif model_size not in SUPPORTED_MODELS:
                 # Якщо вказано некоректний розмір, використовуємо base
                 logger.warning(f"Невідомий розмір моделі: {model_size}, використовується base")
                 model_size = "base"
-            logger.info(f"Обрана модель для української мови: {model_size}")
+            # Показуємо що використовується quantized модель
+            logger.info(f"Обрана модель для української мови: {model_size} (quantized з int8)")
             
             # Завантажуємо Whisper з посиланням на сервіс для кешування
             self.whisper_model = LocalWhisperModel(model_size=model_size, device=device, transcription_service=self)

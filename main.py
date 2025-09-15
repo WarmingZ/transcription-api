@@ -254,6 +254,7 @@ async def api_info():
         },
         "features": [
             "Локальна транскрипція (faster-whisper)",
+            "Quantized моделі для CPU",
             "Проста діаризація Оператор/Клієнт (WebRTC VAD)",
             "Підтримка файлів та URL",
             "Українська мова",

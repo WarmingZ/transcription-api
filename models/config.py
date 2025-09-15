@@ -51,3 +51,17 @@ SPEED_OPTIMIZED_CHUNK_SIZES = {
 # Для української мови: tiny, base, small, medium, large
 # Для англійської мови: також distil-small.en, distil-medium.en
 SUPPORTED_MODELS = ['tiny', 'base', 'small', 'medium', 'large']
+
+# Quantized моделі (рекомендовані ChatGPT для кращої продуктивності)
+# faster-whisper автоматично використовує quantized версії при compute_type="int8"
+QUANTIZED_MODELS = {
+    'tiny': 'tiny',    # tiny + int8 = quantized
+    'base': 'base',    # base + int8 = quantized  
+    'small': 'small',  # small + int8 = quantized (рекомендована ChatGPT)
+    'medium': 'medium', # medium + int8 = quantized
+    'large': 'large'   # large + int8 = quantized
+}
+
+# Налаштування compute_type для різних пристроїв
+CPU_COMPUTE_TYPE = "int8"  # Quantized для CPU (швидше та економніше)
+GPU_COMPUTE_TYPE = "float16"  # Float16 для GPU

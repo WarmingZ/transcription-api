@@ -13,7 +13,7 @@ import time
 
 from .config import (
     MODELS_DIR, logger, SPEED_OPTIMIZED_BEAM_SIZE, SPEED_OPTIMIZED_VAD,
-    SUPPORTED_MODELS
+    SUPPORTED_MODELS, QUANTIZED_MODELS, CPU_COMPUTE_TYPE, GPU_COMPUTE_TYPE
 )
 
 # Імпорт soxr для швидкого ресемплінгу
@@ -39,16 +39,19 @@ class LocalWhisperModel:
         try:
             from faster_whisper import WhisperModel
             
-            # Оптимізовані налаштування для CPU (стабільний і швидкий варіант)
+            # Оптимізовані налаштування з quantized моделями (рекомендація ChatGPT)
             if self.device == "cpu":
-                compute_type = "int8"  # стабільний і швидкий варіант на CPU
+                compute_type = CPU_COMPUTE_TYPE  # int8 для CPU
                 cpu_threads = min(4, os.cpu_count() or 4)
-                logger.info(f"🚀 CPU оптимізація: compute_type=int8, cpu_threads={cpu_threads}")
+                # Використовуємо quantized модель (compute_type="int8" автоматично quantized)
+                model_name = self.model_size
+                logger.info(f"🚀 CPU оптимізація: model={model_name} (quantized), compute_type={compute_type}, cpu_threads={cpu_threads}")
             else:
                 # Для GPU: завжди float16
-                compute_type = "float16"
+                compute_type = GPU_COMPUTE_TYPE
                 cpu_threads = 1
-                logger.info("Використовується float16 для GPU")
+                model_name = self.model_size
+                logger.info(f"🚀 GPU оптимізація: model={model_name}, compute_type={compute_type}")
             
             # Шлях до моделі в локальній директорії проекту
             model_path = MODELS_DIR / f"faster-whisper-{self.model_size}"
@@ -57,7 +60,7 @@ class LocalWhisperModel:
             
             try:
                 self.model = WhisperModel(
-                    self.model_size, 
+                    model_name,  # Використовуємо quantized модель якщо доступна
                     device=self.device, 
                     compute_type=compute_type,
                     cpu_threads=cpu_threads,
@@ -65,15 +68,14 @@ class LocalWhisperModel:
                     download_root=str(MODELS_DIR)  # Завантажуємо в локальну директорію
                 )
             except Exception as e:
-                if "int8_float16" in str(e) and compute_type == "int8_float16":
-                    # Fallback на int8 якщо int8_float16 не підтримується
-                    logger.warning(f"int8_float16 не підтримується: {e}")
-                    logger.info("Fallback на int8...")
-                    compute_type = "int8"
+                # Fallback: спробуємо з float16 якщо int8 не працює
+                if self.device == "cpu" and compute_type == "int8":
+                    logger.warning(f"Quantized модель (int8) не працює: {e}")
+                    logger.info("Fallback на float16...")
                     self.model = WhisperModel(
                         self.model_size, 
                         device=self.device, 
-                        compute_type=compute_type,
+                        compute_type="float16",
                         cpu_threads=cpu_threads,
                         num_workers=1,
                         download_root=str(MODELS_DIR)
