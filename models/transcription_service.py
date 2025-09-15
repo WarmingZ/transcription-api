@@ -9,10 +9,9 @@ from typing import Dict, Any, Optional, List, Tuple
 import torch
 import librosa
 import soundfile as sf
-import asyncio
 import time
 
-from .config import logger, LANGUAGE_TOOL_AVAILABLE, SPEED_OPTIMIZED_CHUNK_SIZES, SUPPORTED_MODELS, ENABLE_DIARIZATION, DIARIZATION_MAX_WORKERS
+from .config import logger, LANGUAGE_TOOL_AVAILABLE, SUPPORTED_MODELS, ENABLE_DIARIZATION, DIARIZATION_MAX_WORKERS
 from .whisper_model import LocalWhisperModel
 from .diarization import SimpleDiarizationService
 
@@ -86,9 +85,9 @@ class LocalTranscriptionService:
                 except:
                     model_size = "base"
             elif model_size not in SUPPORTED_MODELS:
-                # Якщо вказано некоректний розмір, використовуємо small
-                logger.warning(f"Невідомий розмір моделі: {model_size}, використовується small")
-                model_size = "small"
+                # Якщо вказано некоректний розмір, використовуємо base
+                logger.warning(f"Невідомий розмір моделі: {model_size}, використовується base")
+                model_size = "base"
             logger.info(f"Обрана модель для української мови: {model_size}")
             
             # Завантажуємо Whisper з посиланням на сервіс для кешування
@@ -134,51 +133,24 @@ class LocalTranscriptionService:
             logger.warning(f"Помилка орфографічної корекції: {e}")
             return text
     
-    def transcribe_simple(self, audio_path: str, language: str = "uk", use_parallel: bool = True, force_no_chunks: bool = True) -> Dict[str, Any]:
+    def transcribe_simple(self, audio_path: str, language: str = "uk", model_size: str = "auto", use_parallel: bool = False, force_no_chunks: bool = True) -> Dict[str, Any]:
         """Швидка транскрипція з опціональним паралельним обробленням"""
         if not self.models_loaded:
             raise RuntimeError("Моделі не завантажені")
         
+        # Перевіряємо чи потрібно змінити модель
+        if model_size != "auto" and model_size != self.whisper_model.model_size:
+            logger.info(f"🔄 Зміна моделі з {self.whisper_model.model_size} на {model_size}")
+            if not self.load_models(model_size):
+                logger.warning(f"Не вдалося завантажити модель {model_size}, використовується поточна")
+        
         start_time = time.time()
         try:
-            logger.info("Початок швидкої транскрипції з faster-whisper...")
+            logger.info(f"Початок швидкої транскрипції з faster-whisper (модель: {self.whisper_model.model_size})...")
             
-            # Використовуємо паралельну обробку лише якщо це реально дає виграш
-            if use_parallel:
-                try:
-                    import librosa
-                    duration = librosa.get_duration(path=audio_path)
-                    
-                    # CPU → послідовна обробка (завантаження моделі у кожному процесі дуже повільне)
-                    if self.whisper_model.device == "cpu" or duration <= 300:
-                        logger.info(f"CPU або короткий файл (≤ 5 хв) → послідовна обробка")
-                        transcription_result = self.whisper_model.transcribe(audio_path, language)
-                    else:
-                        # GPU і довгі файли → паралельно
-                        logger.info(f"GPU і довгий файл ({duration:.1f}с) → паралельна обробка")
-                        import asyncio
-                        try:
-                            # Перевіряємо чи вже є запущений event loop
-                            loop = asyncio.get_running_loop()
-                            # Якщо є, використовуємо послідовну обробку (без попередження)
-                            logger.info("Event loop активний, використовується послідовна обробка")
-                            transcription_result = self.whisper_model.transcribe(audio_path, language)
-                        except RuntimeError:
-                            # Немає запущеного loop, створюємо новий
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            try:
-                                # Передаємо параметр для вимкнення чанків
-                                transcription_result = loop.run_until_complete(
-                                    self.whisper_model.transcribe_parallel(audio_path, language, None, force_no_chunks)
-                                )
-                            finally:
-                                loop.close()
-                except Exception as e:
-                    logger.warning(f"Помилка визначення тривалості: {e}, використовується послідовна обробка")
-                    transcription_result = self.whisper_model.transcribe(audio_path, language)
-            else:
-                transcription_result = self.whisper_model.transcribe(audio_path, language)
+            # Завжди використовуємо послідовну обробку (чанки вимкнено)
+            logger.info("🚫 Чанки вимкнено - використовується послідовна обробка")
+            transcription_result = self.whisper_model.transcribe(audio_path, language)
             
             # Обробка результатів з орфографічною корекцією
             processed_result = self._process_simple_results(transcription_result, language)
@@ -191,10 +163,16 @@ class LocalTranscriptionService:
             logger.error(f"Помилка транскрипції: {e}")
             raise
     
-    def transcribe_with_diarization(self, audio_path: str, language: str = "uk", use_parallel: bool = True, force_no_chunks: bool = True) -> Dict[str, Any]:
+    def transcribe_with_diarization(self, audio_path: str, language: str = "uk", model_size: str = "auto", use_parallel: bool = False, force_no_chunks: bool = True) -> Dict[str, Any]:
         """Транскрипція з діаризацією (Оператор/Клієнт) з паралельною обробкою"""
         if not self.models_loaded:
             raise RuntimeError("Моделі не завантажені")
+        
+        # Перевіряємо чи потрібно змінити модель
+        if model_size != "auto" and model_size != self.whisper_model.model_size:
+            logger.info(f"🔄 Зміна моделі з {self.whisper_model.model_size} на {model_size}")
+            if not self.load_models(model_size):
+                logger.warning(f"Не вдалося завантажити модель {model_size}, використовується поточна")
         
         # Lazy loading діаризації - ініціалізуємо тільки при потребі
         if not ENABLE_DIARIZATION:
