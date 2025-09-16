@@ -11,7 +11,6 @@ import librosa
 import soundfile as sf
 import time
 import hashlib
-from functools import lru_cache
 
 from .config import logger, LANGUAGE_TOOL_AVAILABLE, SUPPORTED_MODELS, QUANTIZED_MODELS, ENABLE_DIARIZATION, DIARIZATION_MAX_WORKERS
 from .whisper_model import LocalWhisperModel
@@ -35,12 +34,24 @@ class LocalTranscriptionService:
         self._audio_cache = {}
         self._cache_max_size = 15  # Максимум 15 файлів в кеші (оптимізовано для 14GB RAM)
         
+        # Кешування результатів LanguageTool для уникнення повторних перевірок
+        self._language_tool_cache = {}
+        self._lt_cache_max_size = 100  # Максимум 100 текстів в кеші LanguageTool
+        
         # Ініціалізуємо LanguageTool для української мови (опціонально)
         if LANGUAGE_TOOL_AVAILABLE:
             try:
                 import language_tool_python
-                self.language_tool = language_tool_python.LanguageTool('uk-UA')
-                logger.info("LanguageTool ініціалізовано для української мови")
+                # Оптимізовані налаштування для сервера 8 CPU + 14GB RAM
+                self.language_tool = language_tool_python.LanguageTool(
+                    'uk-UA',
+                    config={
+                        'maxSpellingSuggestions': 3,  # Менше пропозицій = швидше
+                        'maxErrorsPerWordRate': 0.3,  # Обмежуємо помилки
+                        'maxLength': 10000,  # Обмежуємо довжину тексту
+                    }
+                )
+                logger.info("LanguageTool ініціалізовано для української мови (оптимізовано)")
             except Exception as e:
                 logger.warning(f"LanguageTool недоступний (потрібен Java): {e}")
                 self.language_tool = None
@@ -56,7 +67,7 @@ class LocalTranscriptionService:
             device = "cuda" if torch.cuda.is_available() else "cpu"
             logger.info(f"Використовується пристрій: {device}")
             
-            # Визначаємо розмір моделі (оптимізовано для сервера 8GB RAM + 4 CPU AMD)
+            # Визначаємо розмір моделі (оптимізовано для сервера 14GB RAM + 8 CPU)
             if model_size == "auto":
                 # Для української мови використовуємо звичайні моделі (distil тільки для англійської)
                 try:
@@ -149,15 +160,29 @@ class LocalTranscriptionService:
             return audio, sr
     
     def _correct_text(self, text: str, language: str) -> str:
-        """Орфографічна корекція тексту для української мови"""
+        """Орфографічна корекція тексту для української мови з кешуванням"""
         if not text or language != "uk" or not self.language_tool:
             return text
         
         try:
+            # Перевіряємо кеш
+            text_hash = hash(text)
+            if text_hash in self._language_tool_cache:
+                logger.debug("Орфографічна корекція завантажена з кешу")
+                return self._language_tool_cache[text_hash]
+            
             # Виправляємо помилки через LanguageTool
             matches = self.language_tool.check(text)
             import language_tool_python
             corrected_text = language_tool_python.utils.correct(text, matches)
+            
+            # Кешуємо результат
+            if len(self._language_tool_cache) >= self._lt_cache_max_size:
+                # Видаляємо найстаріший елемент
+                oldest_key = next(iter(self._language_tool_cache))
+                del self._language_tool_cache[oldest_key]
+            
+            self._language_tool_cache[text_hash] = corrected_text
             
             if corrected_text != text:
                 logger.debug("Застосовано орфографічну корекцію")
@@ -169,30 +194,156 @@ class LocalTranscriptionService:
             return text
     
     def _correct_text_batch(self, texts: List[str], language: str) -> List[str]:
-        """Пакетна орфографічна корекція для ефективності"""
+        """Пакетна орфографічна корекція по реченнях для максимальної ефективності"""
         if not texts or language != "uk" or not self.language_tool:
             return texts
         
         try:
-            # Об'єднуємо всі тексти в один для корекції
-            combined_text = " ".join(texts)
+            # Спочатку перевіряємо кеш для кожного тексту
+            cached_results = {}
+            texts_to_process = []
+            text_indices = []
+            
+            for i, text in enumerate(texts):
+                if not text.strip():
+                    cached_results[i] = text
+                    continue
+                
+                text_hash = hash(text)
+                if text_hash in self._language_tool_cache:
+                    cached_results[i] = self._language_tool_cache[text_hash]
+                else:
+                    texts_to_process.append(text)
+                    text_indices.append(i)
+            
+            # Якщо всі тексти в кеші, повертаємо результати
+            if not texts_to_process:
+                logger.debug("Всі тексти знайдені в кеші LanguageTool")
+                return [cached_results[i] for i in range(len(texts))]
+            
+            # Розбиваємо тексти на речення та зберігаємо мапінг
+            sentence_mapping = []  # [(original_text_index, sentence_start, sentence_end), ...]
+            all_sentences = []
+            
+            for text_idx, text in enumerate(texts_to_process):
+                # Розбиваємо на речення (простий алгоритм)
+                sentences = self._split_into_sentences(text)
+                
+                for sentence in sentences:
+                    if sentence.strip():
+                        sentence_mapping.append((text_idx, len(all_sentences)))
+                        all_sentences.append(sentence.strip())
+            
+            if not all_sentences:
+                return texts
+            
+            # Обмежуємо розмір тексту для LanguageTool (максимум 5000 символів)
+            max_chunk_size = 5000
+            if len(" ".join(all_sentences)) > max_chunk_size:
+                logger.debug(f"Текст занадто великий ({len(' '.join(all_sentences))} символів), обробляємо частинами")
+                return self._correct_text_batch_chunked(texts_to_process, language, text_indices, cached_results)
+            
+            # Об'єднуємо всі речення в один текст для корекції
+            combined_text = " ".join(all_sentences)
+            
+            # Виконуємо корекцію
             matches = self.language_tool.check(combined_text)
             import language_tool_python
             corrected_text = language_tool_python.utils.correct(combined_text, matches)
             
-            # Розділяємо назад на окремі тексти (спрощено)
-            corrected_texts = corrected_text.split(" ")
+            # Кешуємо результат
+            combined_hash = hash(combined_text)
+            self._language_tool_cache[combined_hash] = corrected_text
             
-            # Якщо кількість не співпадає, повертаємо оригінальні тексти
-            if len(corrected_texts) != len(texts):
-                logger.warning("Пакетна корекція змінила кількість слів, використовуємо оригінальні тексти")
-                return texts
+            # Розбиваємо назад на речення
+            corrected_sentences = self._split_into_sentences(corrected_text)
             
+            # Відновлюємо оригінальну структуру текстів
+            corrected_texts = [""] * len(texts)
+            
+            # Спочатку додаємо кешовані результати
+            for i, result in cached_results.items():
+                corrected_texts[i] = result
+            
+            # Потім обробляємо нові тексти
+            for text_idx, text in enumerate(texts_to_process):
+                original_idx = text_indices[text_idx]
+                
+                # Знаходимо речення для цього тексту
+                text_sentences = []
+                for mapping_text_idx, sentence_idx in sentence_mapping:
+                    if mapping_text_idx == text_idx:
+                        if sentence_idx < len(corrected_sentences):
+                            text_sentences.append(corrected_sentences[sentence_idx])
+                        else:
+                            # Fallback на оригінальне речення
+                            original_sentences = self._split_into_sentences(text)
+                            if len(text_sentences) < len(original_sentences):
+                                text_sentences.append(original_sentences[len(text_sentences)])
+                
+                # Об'єднуємо речення назад в текст
+                corrected_texts[original_idx] = " ".join(text_sentences) if text_sentences else text
+                
+                # Кешуємо індивідуальний результат
+                text_hash = hash(text)
+                self._language_tool_cache[text_hash] = corrected_texts[original_idx]
+            
+            logger.debug(f"Пакетна корекція: {len(all_sentences)} речень оброблено, {len(cached_results)} з кешу")
             return corrected_texts
             
         except Exception as e:
-            logger.warning(f"Помилка пакетної корекції: {e}")
-            return texts
+            logger.warning(f"Помилка пакетної корекції по реченнях: {e}")
+            # Fallback на індивідуальну корекцію
+            return [self._correct_text(text, language) for text in texts]
+    
+    def _correct_text_batch_chunked(self, texts: List[str], language: str, text_indices: List[int], cached_results: dict) -> List[str]:
+        """Обробка великих текстів частинами"""
+        corrected_texts = [""] * (len(texts) + len(cached_results))
+        
+        # Додаємо кешовані результати
+        for i, result in cached_results.items():
+            corrected_texts[i] = result
+        
+        # Обробляємо тексти частинами
+        chunk_size = 3  # Обробляємо по 3 тексти за раз
+        for i in range(0, len(texts), chunk_size):
+            chunk_texts = texts[i:i+chunk_size]
+            chunk_indices = text_indices[i:i+chunk_size]
+            
+            try:
+                chunk_results = self._correct_text_batch(chunk_texts, language)
+                for j, result in enumerate(chunk_results):
+                    corrected_texts[chunk_indices[j]] = result
+            except Exception as e:
+                logger.warning(f"Помилка обробки частини тексту: {e}")
+                # Fallback на індивідуальну корекцію
+                for j, text in enumerate(chunk_texts):
+                    corrected_texts[chunk_indices[j]] = self._correct_text(text, language)
+        
+        return corrected_texts
+    
+    def _split_into_sentences(self, text: str) -> List[str]:
+        """Розбиває текст на речення (простий алгоритм для української мови)"""
+        if not text.strip():
+            return []
+        
+        # Простий алгоритм розбиття на речення
+        import re
+        
+        # Додаємо пробіли перед знаками пунктуації
+        text = re.sub(r'([.!?])([А-ЯЄІЇҐ])', r'\1 \2', text)
+        
+        # Розбиваємо по знаках завершення речень
+        sentences = re.split(r'[.!?]+', text)
+        
+        # Очищаємо та фільтруємо
+        cleaned_sentences = []
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if sentence and len(sentence) > 2:  # Ігноруємо дуже короткі фрагменти
+                cleaned_sentences.append(sentence)
+        
+        return cleaned_sentences
     
     def transcribe_simple(self, audio_path: str, language: str = "uk", model_size: str = "auto", use_parallel: bool = False, force_no_chunks: bool = True) -> Dict[str, Any]:
         """Швидка транскрипція з опціональним паралельним обробленням"""
@@ -265,7 +416,7 @@ class LocalTranscriptionService:
                 return self.transcribe_simple(audio_path, language, use_parallel)
             
             if use_parallel and len(speaker_segments) > 1:
-                # Паралельна обробка сегментів з ProcessPoolExecutor
+                # Паралельна обробка сегментів з ThreadPoolExecutor
                 logger.info(f"Паралельна обробка {len(speaker_segments)} сегментів діаризації...")
                 processed_segments = self._process_diarization_segments_parallel(
                     audio, sr, speaker_segments, language
@@ -322,27 +473,27 @@ class LocalTranscriptionService:
     def _process_diarization_segments_parallel(self, audio: np.ndarray, sr: int, 
                                              speaker_segments: List[Dict[str, Any]], 
                                              language: str) -> List[Dict[str, Any]]:
-        """Паралельна обробка сегментів діаризації з multiprocessing (оптимізовано для 8 CPU)"""
+        """Паралельна обробка сегментів діаризації з threads (оптимізовано для CPU)"""
         try:
-            from concurrent.futures import ProcessPoolExecutor
+            from concurrent.futures import ThreadPoolExecutor
             import os
             
-            # Динамічне визначення кількості процесів (оптимізовано для сервера 14GB RAM + 8 CPU)
+            # Динамічне визначення кількості потоків (оптимізовано для сервера 14GB RAM + 8 CPU)
             cpu_count = os.cpu_count()
             max_workers = min(DIARIZATION_MAX_WORKERS, len(speaker_segments), cpu_count - 1)  # Залишаємо 1 CPU для системи
-            logger.info(f"🚀 Сервер {cpu_count} CPU + 14GB RAM - використовується {max_workers} процесів для паралельної діаризації")
+            logger.info(f"🚀 Сервер {cpu_count} CPU + 14GB RAM - використовується {max_workers} потоків для паралельної діаризації (threads)")
             
             # Якщо сегментів мало, використовуємо послідовну обробку
             if len(speaker_segments) <= 2 or max_workers <= 1:
                 logger.info("Використовується послідовна обробка (мало сегментів)")
                 return self._process_diarization_segments_sequential(audio, sr, speaker_segments, language)
             
-            # Паралельна обробка з ProcessPoolExecutor
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Паралельна обробка з ThreadPoolExecutor (використовуємо одну модель)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Створюємо завдання для кожного сегменту
                 futures = [
                     executor.submit(
-                        self._process_single_diarization_segment_worker_optimized,
+                        self._process_single_diarization_segment_threaded,
                         audio, sr, segment, language
                     )
                     for segment in speaker_segments
@@ -371,6 +522,55 @@ class LocalTranscriptionService:
             logger.error(f"Помилка паралельної обробки діаризації: {e}")
             # Fallback до послідовної обробки
             return self._process_diarization_segments_sequential(audio, sr, speaker_segments, language)
+    
+    def _process_single_diarization_segment_threaded(self, audio: np.ndarray, sr: int,
+                                                    speaker_info: Dict[str, Any], 
+                                                    language: str) -> Optional[Dict[str, Any]]:
+        """Threaded обробка одного сегменту діаризації (використовує існуючу модель)"""
+        try:
+            start_time = speaker_info["start"]
+            end_time = speaker_info["end"]
+            speaker = speaker_info["speaker"]
+            
+            # Витягуємо сегмент аудіо з попередньо завантаженого масиву
+            start_sample = int(start_time * sr)
+            end_sample = int(end_time * sr)
+            segment_audio = audio[start_sample:end_sample]
+            
+            # Використовуємо існуючу модель (thread-safe для CPU)
+            segments, info = self.whisper_model.model.transcribe(
+                segment_audio,  # Передаємо масив напряму
+                language=language,
+                beam_size=self.beam_size,
+                word_timestamps=False,  # Швидше для коротких сегментів
+                vad_filter=False,  # Швидше для коротких сегментів
+                temperature=0.0,
+                best_of=1,
+            )
+            
+            # Обробляємо результат
+            segment_text = ""
+            for segment in segments:
+                segment_text += segment.text + " "
+            
+            if segment_text.strip():
+                # Орфографічна корекція
+                if language == "uk":
+                    segment_text = self._correct_text(segment_text.strip(), language)
+                
+                return {
+                    "start": start_time,
+                    "end": end_time,
+                    "text": segment_text.strip(),
+                    "speaker": speaker,
+                    "duration": end_time - start_time
+                }
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Помилка threaded обробки сегменту {speaker}: {e}")
+            return None
     
     @staticmethod
     def _process_single_diarization_segment_worker_optimized(audio: np.ndarray, sr: int,
@@ -411,7 +611,7 @@ class LocalTranscriptionService:
                 compute_type = "float16"
             
             # Завантажуємо модель в worker процесі (оптимізовано для 8 CPU)
-            model = WhisperModel("base", device=device, compute_type=compute_type, cpu_threads=2)
+            model = WhisperModel("base", device=device, compute_type=compute_type, cpu_threads=4)
             
             # Транскрибуємо сегмент з оптимізованими параметрами
             segments, info = model.transcribe(
