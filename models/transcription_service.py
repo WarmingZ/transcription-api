@@ -30,13 +30,13 @@ class LocalTranscriptionService:
         self.best_of = best_of
         self.word_timestamps = word_timestamps
         
-        # Кешування аудіо для оптимізації
+        # Кешування аудіо для оптимізації (зменшено для економії пам'яті)
         self._audio_cache = {}
-        self._cache_max_size = 15  # Максимум 15 файлів в кеші (оптимізовано для 14GB RAM)
+        self._cache_max_size = 5  # Максимум 5 файлів в кеші (оптимізовано для економії пам'яті)
         
         # Кешування результатів LanguageTool для уникнення повторних перевірок
         self._language_tool_cache = {}
-        self._lt_cache_max_size = 100  # Максимум 100 текстів в кеші LanguageTool
+        self._lt_cache_max_size = 50  # Максимум 50 текстів в кеші LanguageTool (зменшено)
         
         # Ініціалізуємо LanguageTool для української мови (опціонально)
         if LANGUAGE_TOOL_AVAILABLE:
@@ -131,7 +131,7 @@ class LocalTranscriptionService:
             return False
     
     def _load_audio_cached(self, audio_path: str) -> Tuple[np.ndarray, int]:
-        """Завантажує аудіо з кешу або з диску"""
+        """Завантажує аудіо з кешу або з диску (оптимізовано для економії пам'яті)"""
         try:
             # Створюємо хеш файлу для кешування
             file_stat = os.stat(audio_path)
@@ -145,11 +145,12 @@ class LocalTranscriptionService:
             logger.debug(f"Завантаження аудіо з диску: {audio_path}")
             audio, sr = librosa.load(audio_path, sr=16000, mono=True)
             
-            # Додаємо в кеш (з обмеженням розміру)
+            # Додаємо в кеш (з обмеженням розміру та автоматичним очищенням)
             if len(self._audio_cache) >= self._cache_max_size:
                 # Видаляємо найстаріший елемент
                 oldest_key = next(iter(self._audio_cache))
                 del self._audio_cache[oldest_key]
+                logger.debug(f"Очищено старий аудіо кеш: {oldest_key}")
             
             self._audio_cache[file_hash] = (audio, sr)
             return audio, sr
@@ -158,6 +159,24 @@ class LocalTranscriptionService:
             logger.warning(f"Помилка кешування аудіо: {e}, завантажуємо з диску")
             audio, sr = librosa.load(audio_path, sr=16000, mono=True)
             return audio, sr
+    
+    def clear_audio_cache(self):
+        """Очищує кеш аудіо для економії пам'яті"""
+        cache_size = len(self._audio_cache)
+        self._audio_cache.clear()
+        logger.info(f"Очищено аудіо кеш: {cache_size} файлів")
+    
+    def clear_language_tool_cache(self):
+        """Очищує кеш LanguageTool для економії пам'яті"""
+        cache_size = len(self._language_tool_cache)
+        self._language_tool_cache.clear()
+        logger.info(f"Очищено LanguageTool кеш: {cache_size} текстів")
+    
+    def clear_all_caches(self):
+        """Очищує всі кеші для економії пам'яті"""
+        self.clear_audio_cache()
+        self.clear_language_tool_cache()
+        logger.info("Всі кеші очищено")
     
     def _correct_text(self, text: str, language: str) -> str:
         """Орфографічна корекція тексту для української мови з кешуванням"""
@@ -369,6 +388,10 @@ class LocalTranscriptionService:
             
             elapsed_time = time.time() - start_time
             logger.info(f"Транскрипція завершена успішно за {elapsed_time:.2f} секунд")
+            
+            # Очищуємо кеші для економії пам'яті
+            self.clear_all_caches()
+            
             return processed_result
             
         except Exception as e:
@@ -464,6 +487,10 @@ class LocalTranscriptionService:
             
             elapsed_time = time.time() - start_time
             logger.info(f"Транскрипція з діаризацією завершена: {len(processed_segments)} сегментів за {elapsed_time:.2f} секунд")
+            
+            # Очищуємо кеші для економії пам'яті
+            self.clear_all_caches()
+            
             return result
             
         except Exception as e:

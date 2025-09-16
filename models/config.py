@@ -25,14 +25,14 @@ except ImportError:
     logger.warning("LanguageTool недоступний - орфографічна корекція вимкнена")
 
 # Константи для оптимізації (налаштовано для CPU-only сервера 14GB RAM + 8 CPU)
-DEFAULT_CHUNK_SIZE = 90  # секунд (оптимізовано для 8 CPU)
-MAX_WORKERS = 6  # Оптимізовано для 8 CPU (75% ядер)
-CACHE_MAX_SIZE = 8  # Оптимізовано для 14GB RAM
+DEFAULT_CHUNK_SIZE = 60  # секунд (зменшено для економії пам'яті)
+MAX_WORKERS = 4  # Зменшено для економії пам'яті (50% ядер)
+CACHE_MAX_SIZE = 3  # Зменшено для економії пам'яті
 
 # CPU-only оптимізації (ви завжди використовуєте CPU)
-CPU_CHUNK_SIZE = 90  # секунд (оптимізовано для CPU)
-CPU_MAX_WORKERS = 6  # Потоки для CPU
-CPU_CACHE_MAX_SIZE = 8  # Кеш для CPU
+CPU_CHUNK_SIZE = 60  # секунд (зменшено для економії пам'яті)
+CPU_MAX_WORKERS = 4  # Зменшено для економії пам'яті
+CPU_CACHE_MAX_SIZE = 3  # Зменшено для економії пам'яті
 
 # GPU оптимізації (не використовуються, але залишені для сумісності)
 GPU_CHUNK_SIZE = 150  # секунд (більші чанки для GPU)
@@ -41,7 +41,7 @@ GPU_CACHE_MAX_SIZE = 10  # Більший кеш для GPU
 
 # Налаштування діаризації (оптимізовано для CPU-only)
 ENABLE_DIARIZATION = True  # Можна відключити для економії ресурсів
-DIARIZATION_MAX_WORKERS = 6  # Оптимізовано для 8 CPU (threads замість processes)
+DIARIZATION_MAX_WORKERS = 4  # Зменшено для економії пам'яті (threads замість processes)
 
 # Оптимізовані параметри для швидкості
 SPEED_OPTIMIZED_BEAM_SIZE = 1  # Завжди 1 для максимальної швидкості

@@ -138,11 +138,11 @@ async def load_models():
         
         # Ініціалізуємо чергу та executor (оптимізовано для 8 CPU)
         task_queue = asyncio.Queue()
-        executor = ThreadPoolExecutor(max_workers=6)  # Використовуємо 75% CPU
+        executor = ThreadPoolExecutor(max_workers=4)  # Зменшено для економії пам'яті
         
         # Запускаємо воркери для обробки черги
         logger.info("Запуск воркерів для обробки черги транскрипції...")
-        for i in range(6):  # Запускаємо 6 воркерів (оптимізовано для 8 CPU)
+        for i in range(4):  # Запускаємо 4 воркери (зменшено для економії пам'яті)
             worker_task = asyncio.create_task(worker())
             worker_tasks.append(worker_task)
             logger.info(f"Воркер {i+1} запущено")
@@ -202,7 +202,7 @@ def save_task_status(task_id: str, task_status: TaskStatus):
             all_tasks = {}
         
         # Оновлюємо статус задачі
-        all_tasks[task_id] = task_status.dict()
+        all_tasks[task_id] = task_status.model_dump()
         
         # Очищуємо старі задачі (старші 7 днів)
         cleaned_tasks = clean_old_tasks(all_tasks)
@@ -345,6 +345,11 @@ async def worker():
             # Позначаємо задачу як виконану
             task_queue.task_done()
             logger.info(f"Воркер {worker_id} завершив задачу {task_data['task_id']}")
+            
+            # Очищуємо пам'ять після кожної задачі
+            import gc
+            gc.collect()
+            logger.debug(f"Воркер {worker_id} очистив пам'ять")
             
         except asyncio.CancelledError:
             logger.info(f"Воркер {worker_id} отримав сигнал завершення")
