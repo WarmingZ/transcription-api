@@ -481,22 +481,22 @@ class LocalTranscriptionService:
                 elapsed_time = time.time() - start_time
                 logger.info(f"Транскрипція завершена успішно за {elapsed_time:.2f} секунд")
                 
-            # Очищуємо кеші для економії пам'яті
-            self.clear_all_caches()
-            
-            # Примусове очищення пам'яті
-            import gc
-            for _ in range(3):
-                gc.collect()
-            
-            # Очищення кешу Python
-            import sys
-            if hasattr(sys, '_clear_type_cache'):
-                sys._clear_type_cache()
-            
-            logger.info("🧹 Примусове очищення пам'яті завершено")
-            
-            return processed_result
+                # Очищуємо кеші для економії пам'яті
+                self.clear_all_caches()
+                
+                # Примусове очищення пам'яті
+                import gc
+                for _ in range(3):
+                    gc.collect()
+                
+                # Очищення кешу Python
+                import sys
+                if hasattr(sys, '_clear_type_cache'):
+                    sys._clear_type_cache()
+                
+                logger.info("🧹 Примусове очищення пам'яті завершено")
+                
+                return processed_result
                 
             except Exception as e:
                 logger.error(f"Помилка транскрипції: {e}")
