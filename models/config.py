@@ -25,26 +25,26 @@ except ImportError:
     logger.warning("LanguageTool недоступний - орфографічна корекція вимкнена")
 
 # Константи для оптимізації (налаштовано для сервера 14GB RAM + 8 CPU)
-DEFAULT_CHUNK_SIZE = 90  # секунд (збільшено для кращого використання CPU)
+DEFAULT_CHUNK_SIZE = 90  # секунд (оптимізовано для 8 CPU)
 MAX_WORKERS = 6  # Оптимізовано для 8 CPU (75% ядер)
-CACHE_MAX_SIZE = 5  # Збільшено для 14GB RAM
+CACHE_MAX_SIZE = 8  # Оптимізовано для 14GB RAM
 
 # GPU оптимізації
 GPU_CHUNK_SIZE = 150  # секунд (більші чанки для GPU)
 GPU_MAX_WORKERS = 6  # Більше процесів для GPU
-GPU_CACHE_MAX_SIZE = 7  # Більший кеш для GPU
+GPU_CACHE_MAX_SIZE = 10  # Більший кеш для GPU
 
 # Налаштування діаризації
 ENABLE_DIARIZATION = True  # Можна відключити для економії ресурсів
-DIARIZATION_MAX_WORKERS = 4  # Збільшено для 8 CPU
+DIARIZATION_MAX_WORKERS = 6  # Оптимізовано для 8 CPU
 
 # Оптимізовані параметри для швидкості
 SPEED_OPTIMIZED_BEAM_SIZE = 1  # Завжди 1 для максимальної швидкості
 SPEED_OPTIMIZED_VAD = True     # Увімкнено для кращого виявлення початку мовлення
 SPEED_OPTIMIZED_CHUNK_SIZES = {
-    'short': 45,    # < 5 хв (збільшено для кращого використання CPU)
-    'medium': 90,   # 5-30 хв (збільшено для кращого використання CPU)
-    'long': 120     # > 30 хв (збільшено для кращого використання CPU)
+    'short': 60,    # < 5 хв (оптимізовано для 8 CPU)
+    'medium': 120,  # 5-30 хв (оптимізовано для 8 CPU)
+    'long': 180     # > 30 хв (оптимізовано для 8 CPU)
 }
 
 # Доступні моделі для різних мов

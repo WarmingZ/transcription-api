@@ -136,13 +136,13 @@ async def load_models():
         # Виводимо інформацію про master токен
         api_key_manager.print_startup_info()
         
-        # Ініціалізуємо чергу та executor
+        # Ініціалізуємо чергу та executor (оптимізовано для 8 CPU)
         task_queue = asyncio.Queue()
-        executor = ThreadPoolExecutor(max_workers=2)
+        executor = ThreadPoolExecutor(max_workers=6)  # Використовуємо 75% CPU
         
         # Запускаємо воркери для обробки черги
         logger.info("Запуск воркерів для обробки черги транскрипції...")
-        for i in range(2):  # Запускаємо 2 воркери
+        for i in range(6):  # Запускаємо 6 воркерів (оптимізовано для 8 CPU)
             worker_task = asyncio.create_task(worker())
             worker_tasks.append(worker_task)
             logger.info(f"Воркер {i+1} запущено")

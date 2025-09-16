@@ -10,6 +10,8 @@ import torch
 import librosa
 import soundfile as sf
 import time
+import hashlib
+from functools import lru_cache
 
 from .config import logger, LANGUAGE_TOOL_AVAILABLE, SUPPORTED_MODELS, QUANTIZED_MODELS, ENABLE_DIARIZATION, DIARIZATION_MAX_WORKERS
 from .whisper_model import LocalWhisperModel
@@ -29,7 +31,9 @@ class LocalTranscriptionService:
         self.best_of = best_of
         self.word_timestamps = word_timestamps
         
-        # Кешування тимчасово вимкнено
+        # Кешування аудіо для оптимізації
+        self._audio_cache = {}
+        self._cache_max_size = 15  # Максимум 15 файлів в кеші (оптимізовано для 14GB RAM)
         
         # Ініціалізуємо LanguageTool для української мови (опціонально)
         if LANGUAGE_TOOL_AVAILABLE:
@@ -116,11 +120,33 @@ class LocalTranscriptionService:
             return False
     
     def _load_audio_cached(self, audio_path: str) -> Tuple[np.ndarray, int]:
-        """Завантажує аудіо з диску (кешування вимкнено)"""
-        # Кешування вимкнено - завжди завантажуємо з диску
-        logger.debug(f"Завантаження аудіо з диску: {audio_path}")
-        audio, sr = librosa.load(audio_path, sr=16000, mono=True)
-        return audio, sr
+        """Завантажує аудіо з кешу або з диску"""
+        try:
+            # Створюємо хеш файлу для кешування
+            file_stat = os.stat(audio_path)
+            file_hash = f"{audio_path}_{file_stat.st_size}_{file_stat.st_mtime}"
+            
+            if file_hash in self._audio_cache:
+                logger.debug(f"Аудіо завантажено з кешу: {audio_path}")
+                return self._audio_cache[file_hash]
+            
+            # Завантажуємо з диску та кешуємо
+            logger.debug(f"Завантаження аудіо з диску: {audio_path}")
+            audio, sr = librosa.load(audio_path, sr=16000, mono=True)
+            
+            # Додаємо в кеш (з обмеженням розміру)
+            if len(self._audio_cache) >= self._cache_max_size:
+                # Видаляємо найстаріший елемент
+                oldest_key = next(iter(self._audio_cache))
+                del self._audio_cache[oldest_key]
+            
+            self._audio_cache[file_hash] = (audio, sr)
+            return audio, sr
+            
+        except Exception as e:
+            logger.warning(f"Помилка кешування аудіо: {e}, завантажуємо з диску")
+            audio, sr = librosa.load(audio_path, sr=16000, mono=True)
+            return audio, sr
     
     def _correct_text(self, text: str, language: str) -> str:
         """Орфографічна корекція тексту для української мови"""
@@ -134,13 +160,39 @@ class LocalTranscriptionService:
             corrected_text = language_tool_python.utils.correct(text, matches)
             
             if corrected_text != text:
-                logger.info("Застосовано орфографічну корекцію")
+                logger.debug("Застосовано орфографічну корекцію")
             
             return corrected_text
             
         except Exception as e:
             logger.warning(f"Помилка орфографічної корекції: {e}")
             return text
+    
+    def _correct_text_batch(self, texts: List[str], language: str) -> List[str]:
+        """Пакетна орфографічна корекція для ефективності"""
+        if not texts or language != "uk" or not self.language_tool:
+            return texts
+        
+        try:
+            # Об'єднуємо всі тексти в один для корекції
+            combined_text = " ".join(texts)
+            matches = self.language_tool.check(combined_text)
+            import language_tool_python
+            corrected_text = language_tool_python.utils.correct(combined_text, matches)
+            
+            # Розділяємо назад на окремі тексти (спрощено)
+            corrected_texts = corrected_text.split(" ")
+            
+            # Якщо кількість не співпадає, повертаємо оригінальні тексти
+            if len(corrected_texts) != len(texts):
+                logger.warning("Пакетна корекція змінила кількість слів, використовуємо оригінальні тексти")
+                return texts
+            
+            return corrected_texts
+            
+        except Exception as e:
+            logger.warning(f"Помилка пакетної корекції: {e}")
+            return texts
     
     def transcribe_simple(self, audio_path: str, language: str = "uk", model_size: str = "auto", use_parallel: bool = False, force_no_chunks: bool = True) -> Dict[str, Any]:
         """Швидка транскрипція з опціональним паралельним обробленням"""
@@ -270,38 +322,47 @@ class LocalTranscriptionService:
     def _process_diarization_segments_parallel(self, audio: np.ndarray, sr: int, 
                                              speaker_segments: List[Dict[str, Any]], 
                                              language: str) -> List[Dict[str, Any]]:
-        """Паралельна обробка сегментів діаризації з ProcessPoolExecutor"""
+        """Паралельна обробка сегментів діаризації з multiprocessing (оптимізовано для 8 CPU)"""
         try:
-            import asyncio
             from concurrent.futures import ProcessPoolExecutor
             import os
             
-            # Динамічне визначення кількості процесів (оптимізовано для сервера 8GB RAM + 4 CPU AMD)
+            # Динамічне визначення кількості процесів (оптимізовано для сервера 14GB RAM + 8 CPU)
             cpu_count = os.cpu_count()
-            # Обмежуємо кількість процесів для діаризації (менше навантаження)
-            max_workers = min(DIARIZATION_MAX_WORKERS, len(speaker_segments), cpu_count // 2)  # Тільки 50% CPU для діаризації
-            logger.info(f"🚀 Сервер {cpu_count} CPU AMD - використовується {max_workers} процесів для паралельної діаризації (оптимізовано)")
+            max_workers = min(DIARIZATION_MAX_WORKERS, len(speaker_segments), cpu_count - 1)  # Залишаємо 1 CPU для системи
+            logger.info(f"🚀 Сервер {cpu_count} CPU + 14GB RAM - використовується {max_workers} процесів для паралельної діаризації")
             
-            # Створюємо завдання для кожного сегменту
+            # Якщо сегментів мало, використовуємо послідовну обробку
+            if len(speaker_segments) <= 2 or max_workers <= 1:
+                logger.info("Використовується послідовна обробка (мало сегментів)")
+                return self._process_diarization_segments_sequential(audio, sr, speaker_segments, language)
+            
+            # Паралельна обробка з ProcessPoolExecutor
             with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                tasks = [
-                    loop.run_in_executor(
-                        executor, 
-                        self._process_single_diarization_segment_worker,
+                # Створюємо завдання для кожного сегменту
+                futures = [
+                    executor.submit(
+                        self._process_single_diarization_segment_worker_optimized,
                         audio, sr, segment, language
                     )
                     for segment in speaker_segments
                 ]
                 
                 # Чекаємо завершення всіх завдань
-                results = loop.run_until_complete(asyncio.gather(*tasks))
-                loop.close()
-            
-            # Фільтруємо успішні результати
-            processed_segments = [result for result in results if result is not None]
+                processed_segments = []
+                for i, future in enumerate(futures):
+                    try:
+                        result = future.result(timeout=300)  # 5 хвилин timeout
+                        if result:
+                            processed_segments.append(result)
+                        
+                        # Логуємо прогрес кожні 3 сегменти
+                        if (i + 1) % 3 == 0:
+                            logger.info(f"Паралельно оброблено {i + 1}/{len(speaker_segments)} сегментів")
+                            
+                    except Exception as e:
+                        logger.warning(f"Помилка обробки сегменту {speaker_segments[i].get('speaker', 'unknown')}: {e}")
+                        continue
             
             logger.info(f"Паралельна обробка завершена: {len(processed_segments)}/{len(speaker_segments)} сегментів")
             return processed_segments
@@ -312,10 +373,10 @@ class LocalTranscriptionService:
             return self._process_diarization_segments_sequential(audio, sr, speaker_segments, language)
     
     @staticmethod
-    def _process_single_diarization_segment_worker(audio: np.ndarray, sr: int,
-                                                 speaker_info: Dict[str, Any], 
-                                                 language: str) -> Optional[Dict[str, Any]]:
-        """Worker функція для ProcessPoolExecutor (статичний метод)"""
+    def _process_single_diarization_segment_worker_optimized(audio: np.ndarray, sr: int,
+                                                           speaker_info: Dict[str, Any], 
+                                                           language: str) -> Optional[Dict[str, Any]]:
+        """Оптимізований worker для multiprocessing (статичний метод)"""
         try:
             # Імпортуємо тут, щоб уникнути проблем з multiprocessing
             from faster_whisper import WhisperModel
@@ -330,7 +391,7 @@ class LocalTranscriptionService:
             end_sample = int(end_time * sr)
             segment_audio = audio[start_sample:end_sample]
             
-            # Визначаємо пристрій та compute_type (оптимізовано для сервера 8GB RAM + 4 CPU AMD)
+            # Визначаємо пристрій та compute_type (оптимізовано для сервера 14GB RAM + 8 CPU)
             device = "cuda" if torch.cuda.is_available() else "cpu"
             if device == "cpu":
                 try:
@@ -338,7 +399,7 @@ class LocalTranscriptionService:
                     memory_gb = psutil.virtual_memory().total / (1024**3)
                     cpu_count = psutil.cpu_count()
                     
-                    if memory_gb >= 8 and cpu_count >= 4:
+                    if memory_gb >= 14 and cpu_count >= 8:
                         compute_type = "int8_float16"  # Оптимально для вашого сервера
                     elif memory_gb >= 8:
                         compute_type = "int8_float16"  # Швидше ніж int8
@@ -349,20 +410,16 @@ class LocalTranscriptionService:
             else:
                 compute_type = "float16"
             
-            # Завантажуємо модель в worker процесі
-            model = WhisperModel("base", device=device, compute_type=compute_type)
+            # Завантажуємо модель в worker процесі (оптимізовано для 8 CPU)
+            model = WhisperModel("base", device=device, compute_type=compute_type, cpu_threads=2)
             
             # Транскрибуємо сегмент з оптимізованими параметрами
             segments, info = model.transcribe(
                 segment_audio,
                 language=language,
-                beam_size=self.beam_size,  # Використовуємо параметр конструктора
-                word_timestamps=self.word_timestamps,
-                vad_filter=SPEED_OPTIMIZED_VAD,  # Використовуємо константу з конфігу
-                vad_parameters=dict(
-                    min_silence_duration_ms=300,  # Мінімальна тривалість тиші
-                    speech_pad_ms=100,  # Буфер навколо мовлення
-                ),
+                beam_size=1,  # Мінімальний для швидкості
+                word_timestamps=False,  # Швидше для коротких сегментів
+                vad_filter=False,  # Швидше для коротких сегментів
                 temperature=0.0,
                 best_of=1,
             )
@@ -387,6 +444,55 @@ class LocalTranscriptionService:
             logger.warning(f"Помилка worker обробки сегменту {speaker}: {e}")
             return None
     
+    def _process_single_diarization_segment_optimized(self, audio: np.ndarray, sr: int,
+                                                     speaker_info: Dict[str, Any], 
+                                                     language: str) -> Optional[Dict[str, Any]]:
+        """Оптимізована обробка одного сегменту діаризації (використовує існуючу модель)"""
+        try:
+            start_time = speaker_info["start"]
+            end_time = speaker_info["end"]
+            speaker = speaker_info["speaker"]
+            
+            # Витягуємо сегмент аудіо з попередньо завантаженого масиву
+            start_sample = int(start_time * sr)
+            end_sample = int(end_time * sr)
+            segment_audio = audio[start_sample:end_sample]
+            
+            # Використовуємо існуючу модель замість створення нової
+            segments, info = self.whisper_model.model.transcribe(
+                segment_audio,  # Передаємо масив напряму
+                language=language,
+                beam_size=self.beam_size,
+                word_timestamps=False,  # Швидше для коротких сегментів
+                vad_filter=False,  # Швидше для коротких сегментів
+                temperature=0.0,
+                best_of=1,
+            )
+            
+            # Обробляємо результат
+            segment_text = ""
+            for segment in segments:
+                segment_text += segment.text + " "
+            
+            if segment_text.strip():
+                # Орфографічна корекція
+                if language == "uk":
+                    segment_text = self._correct_text(segment_text.strip(), language)
+                
+                return {
+                    "start": start_time,
+                    "end": end_time,
+                    "text": segment_text.strip(),
+                    "speaker": speaker,
+                    "duration": end_time - start_time
+                }
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Помилка обробки сегменту {speaker}: {e}")
+            return None
+    
     def _process_diarization_segments_sequential(self, audio: np.ndarray, sr: int,
                                                speaker_segments: List[Dict[str, Any]], 
                                                language: str) -> List[Dict[str, Any]]:
@@ -395,7 +501,7 @@ class LocalTranscriptionService:
         
         for speaker_info in speaker_segments:
             try:
-                result = self._process_single_diarization_segment(audio, sr, speaker_info, language)
+                result = self._process_single_diarization_segment_optimized(audio, sr, speaker_info, language)
                 if result:
                     processed_segments.append(result)
             except Exception as e:
@@ -407,7 +513,7 @@ class LocalTranscriptionService:
     def _process_single_diarization_segment(self, audio: np.ndarray, sr: int,
                                           speaker_info: Dict[str, Any], 
                                           language: str) -> Optional[Dict[str, Any]]:
-        """Обробка одного сегменту діаризації"""
+        """Обробка одного сегменту діаризації (fallback з тимчасовими файлами)"""
         try:
             start_time = speaker_info["start"]
             end_time = speaker_info["end"]
@@ -418,34 +524,20 @@ class LocalTranscriptionService:
             end_sample = int(end_time * sr)
             segment_audio = audio[start_sample:end_sample]
             
-            # Зберігаємо тимчасовий файл для сегменту
+            # Зберігаємо тимчасовий файл для сегменту (fallback метод)
             segment_path = f"temp_segment_{start_time:.1f}_{end_time:.1f}.wav"
             sf.write(segment_path, segment_audio, sr, format='WAV', subtype='PCM_16')
             
             try:
                 # Транскрибуємо сегмент з оптимізованими параметрами
-                segment_duration = end_time - start_time
-                if segment_duration < 10:  # Дуже короткі сегменти
-                    beam_size = 1
-                    vad_filter = False
-                elif segment_duration < 30:
-                    beam_size = 1
-                    vad_filter = True
-                else:
-                    beam_size = 2
-                    vad_filter = True
-                
-                # Використовуємо оптимізовані параметри
                 segments, info = self.whisper_model.model.transcribe(
                     segment_path,
                     language=language,
-                    beam_size=beam_size,
-                    word_timestamps=True,
-                    vad_filter=SPEED_OPTIMIZED_VAD,  # Використовуємо константу з конфігу
-                    vad_parameters=dict(
-                        min_silence_duration_ms=200,  # Зменшено для кращого виявлення коротких пауз
-                        speech_pad_ms=150,  # Буфер навколо мовлення
-                    ),
+                    beam_size=self.beam_size,
+                    word_timestamps=False,  # Швидше
+                    vad_filter=False,  # Швидше для коротких сегментів
+                    temperature=0.0,
+                    best_of=1,
                 )
                 
                 # Обробляємо результат
@@ -453,25 +545,15 @@ class LocalTranscriptionService:
                 for segment in segments:
                     segment_text += segment.text + " "
                 
-                segment_result = {
-                    "text": segment_text.strip(),
-                    "segments": [{"start": s.start, "end": s.end, "text": s.text} for s in segments],
-                    "duration": info.duration,
-                    "language": language
-                }
-                
-                # Обробляємо результат
-                if segment_result and segment_result.get("text"):
-                    segment_text = segment_result["text"].strip()
-                    
+                if segment_text.strip():
                     # Орфографічна корекція
                     if language == "uk":
-                        segment_text = self._correct_text(segment_text, language)
+                        segment_text = self._correct_text(segment_text.strip(), language)
                     
                     return {
                         "start": start_time,
                         "end": end_time,
-                        "text": segment_text,
+                        "text": segment_text.strip(),
                         "speaker": speaker,
                         "duration": end_time - start_time
                     }
@@ -513,6 +595,9 @@ class LocalTranscriptionService:
             
             # Отримуємо сегменти з орфографічною корекцією
             segments = []
+            segment_texts = []
+            
+            # Спочатку збираємо всі тексти для пакетної корекції
             for segment in transcription_result.get("segments", []):
                 segment_text = segment.get("text", "").strip()
                 
@@ -520,9 +605,20 @@ class LocalTranscriptionService:
                 if isinstance(segment_text, bytes):
                     segment_text = segment_text.decode('utf-8', errors='ignore')
                 
-                # Орфографічна корекція для кожного сегменту
-                if language == "uk":
-                    segment_text = self._correct_text(segment_text, language)
+                segment_texts.append(segment_text)
+            
+            # Пакетна орфографічна корекція (якщо доступна)
+            if language == "uk" and segment_texts:
+                try:
+                    corrected_texts = self._correct_text_batch(segment_texts, language)
+                    if len(corrected_texts) == len(segment_texts):
+                        segment_texts = corrected_texts
+                except Exception as e:
+                    logger.warning(f"Помилка пакетної корекції: {e}")
+            
+            # Формуємо фінальні сегменти
+            for i, segment in enumerate(transcription_result.get("segments", [])):
+                segment_text = segment_texts[i] if i < len(segment_texts) else segment.get("text", "").strip()
                 
                 segments.append({
                     "start": segment.get("start", 0),
