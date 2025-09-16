@@ -149,9 +149,9 @@ class LocalTranscriptionService:
                 logger.debug(f"Аудіо завантажено з кешу: {audio_path}")
                 return self._audio_cache[file_hash]
             
-            # Завантажуємо з диску та кешуємо
+            # Завантажуємо з диску та кешуємо (з економією пам'яті)
             logger.debug(f"Завантаження аудіо з диску: {audio_path}")
-            audio, sr = librosa.load(audio_path, sr=16000, mono=True)
+            audio, sr = librosa.load(audio_path, sr=16000, mono=True, dtype=np.float32)
             
             # Додаємо в кеш (з обмеженням розміру та автоматичним очищенням)
             if len(self._audio_cache) >= self._cache_max_size:
@@ -165,7 +165,7 @@ class LocalTranscriptionService:
             
         except Exception as e:
             logger.warning(f"Помилка кешування аудіо: {e}, завантажуємо з диску")
-            audio, sr = librosa.load(audio_path, sr=16000, mono=True)
+            audio, sr = librosa.load(audio_path, sr=16000, mono=True, dtype=np.float32)
             return audio, sr
     
     def clear_audio_cache(self):
@@ -192,16 +192,19 @@ class LocalTranscriptionService:
             return text
         
         try:
-            # Перевіряємо кеш
-            text_hash = hash(text)
+            # Перевіряємо кеш (використовуємо детермінований hash)
+            import hashlib
+            text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()
             if text_hash in self._language_tool_cache:
                 logger.debug("Орфографічна корекція завантажена з кешу")
                 return self._language_tool_cache[text_hash]
             
-            # Виправляємо помилки через LanguageTool
+            # Виправляємо помилки через LanguageTool (безпечний спосіб)
             matches = self.language_tool.check(text)
-            import language_tool_python
-            corrected_text = language_tool_python.utils.correct(text, matches)
+            corrected_text = text
+            for match in reversed(matches):  # Обробляємо з кінця щоб не змінювати індекси
+                if match.replacements:
+                    corrected_text = corrected_text[:match.offset] + match.replacements[0] + corrected_text[match.offset + match.errorLength:]
             
             # Кешуємо результат
             if len(self._language_tool_cache) >= self._lt_cache_max_size:
@@ -236,7 +239,8 @@ class LocalTranscriptionService:
                     cached_results[i] = text
                     continue
                 
-                text_hash = hash(text)
+                import hashlib
+                text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()
                 if text_hash in self._language_tool_cache:
                     cached_results[i] = self._language_tool_cache[text_hash]
                 else:
@@ -273,13 +277,16 @@ class LocalTranscriptionService:
             # Об'єднуємо всі речення в один текст для корекції
             combined_text = " ".join(all_sentences)
             
-            # Виконуємо корекцію
+            # Виконуємо корекцію (безпечний спосіб без utils.correct)
             matches = self.language_tool.check(combined_text)
-            import language_tool_python
-            corrected_text = language_tool_python.utils.correct(combined_text, matches)
+            corrected_text = combined_text
+            for match in reversed(matches):  # Обробляємо з кінця щоб не змінювати індекси
+                if match.replacements:
+                    corrected_text = corrected_text[:match.offset] + match.replacements[0] + corrected_text[match.offset + match.errorLength:]
             
-            # Кешуємо результат
-            combined_hash = hash(combined_text)
+            # Кешуємо результат (детермінований hash)
+            import hashlib
+            combined_hash = hashlib.md5(combined_text.encode("utf-8")).hexdigest()
             self._language_tool_cache[combined_hash] = corrected_text
             
             # Розбиваємо назад на речення
@@ -311,8 +318,9 @@ class LocalTranscriptionService:
                 # Об'єднуємо речення назад в текст
                 corrected_texts[original_idx] = " ".join(text_sentences) if text_sentences else text
                 
-                # Кешуємо індивідуальний результат
-                text_hash = hash(text)
+                # Кешуємо індивідуальний результат (детермінований hash)
+                import hashlib
+                text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()
                 self._language_tool_cache[text_hash] = corrected_texts[original_idx]
             
             logger.debug(f"Пакетна корекція: {len(all_sentences)} речень оброблено, {len(cached_results)} з кешу")
@@ -380,8 +388,17 @@ class LocalTranscriptionService:
             if file_size_mb > MAX_FILE_SIZE_MB:
                 raise ValueError(f"Файл занадто великий: {file_size_mb:.1f}MB > {MAX_FILE_SIZE_MB}MB")
             
-            # Перевіряємо тривалість аудіо
-            audio, sr = librosa.load(audio_path, sr=None, mono=True)
+            # Перевіряємо тривалість аудіо (використовуємо кеш якщо можливо)
+            try:
+                # Спочатку спробуємо отримати з кешу
+                audio, sr = self._load_audio_cached(audio_path)
+                # Якщо в кеші було 16kHz, перезавантажуємо з оригінальною частотою
+                if sr == 16000:
+                    audio, sr = librosa.load(audio_path, sr=None, mono=True, dtype=np.float32)
+            except:
+                # Fallback: завантажуємо напряму
+                audio, sr = librosa.load(audio_path, sr=None, mono=True, dtype=np.float32)
+            
             duration_minutes = len(audio) / sr / 60
             if duration_minutes > MAX_AUDIO_DURATION_MINUTES:
                 raise ValueError(f"Аудіо занадто довге: {duration_minutes:.1f}хв > {MAX_AUDIO_DURATION_MINUTES}хв")
@@ -429,10 +446,22 @@ class LocalTranscriptionService:
                     elapsed_time = time.time() - start_time
                     logger.info(f"Транскрипція завершена успішно за {elapsed_time:.2f} секунд")
                     
-                    # Очищуємо кеші для економії пам'яті
-                    self.clear_all_caches()
-                    
-                    return processed_result
+            # Очищуємо кеші для економії пам'яті
+            self.clear_all_caches()
+            
+            # Примусове очищення пам'яті
+            import gc
+            for _ in range(3):
+                gc.collect()
+            
+            # Очищення кешу Python
+            import sys
+            if hasattr(sys, '_clear_type_cache'):
+                sys._clear_type_cache()
+            
+            logger.info("🧹 Примусове очищення пам'яті завершено")
+            
+            return processed_result
                     
                 except Exception as e:
                     logger.error(f"Помилка транскрипції: {e}")
@@ -452,10 +481,22 @@ class LocalTranscriptionService:
                 elapsed_time = time.time() - start_time
                 logger.info(f"Транскрипція завершена успішно за {elapsed_time:.2f} секунд")
                 
-                # Очищуємо кеші для економії пам'яті
-                self.clear_all_caches()
-                
-                return processed_result
+            # Очищуємо кеші для економії пам'яті
+            self.clear_all_caches()
+            
+            # Примусове очищення пам'яті
+            import gc
+            for _ in range(3):
+                gc.collect()
+            
+            # Очищення кешу Python
+            import sys
+            if hasattr(sys, '_clear_type_cache'):
+                sys._clear_type_cache()
+            
+            logger.info("🧹 Примусове очищення пам'яті завершено")
+            
+            return processed_result
                 
             except Exception as e:
                 logger.error(f"Помилка транскрипції: {e}")
@@ -627,9 +668,17 @@ class LocalTranscriptionService:
             end_sample = int(end_time * sr)
             segment_audio = audio[start_sample:end_sample]
             
+            # Конвертуємо segment_audio в BytesIO для безпечної передачі
+            from io import BytesIO
+            import soundfile as sf
+            
+            buf = BytesIO()
+            sf.write(buf, segment_audio, sr, format="WAV", subtype='PCM_16')
+            buf.seek(0)
+            
             # Використовуємо існуючу модель (thread-safe для CPU)
             segments, info = self.whisper_model.model.transcribe(
-                segment_audio,  # Передаємо масив напряму
+                buf,  # Передаємо BytesIO замість масиву
                 language=language,
                 beam_size=self.beam_size,
                 word_timestamps=False,  # Швидше для коротких сегментів
@@ -748,9 +797,17 @@ class LocalTranscriptionService:
             end_sample = int(end_time * sr)
             segment_audio = audio[start_sample:end_sample]
             
+            # Конвертуємо segment_audio в BytesIO для безпечної передачі
+            from io import BytesIO
+            import soundfile as sf
+            
+            buf = BytesIO()
+            sf.write(buf, segment_audio, sr, format="WAV", subtype='PCM_16')
+            buf.seek(0)
+            
             # Використовуємо існуючу модель замість створення нової
             segments, info = self.whisper_model.model.transcribe(
-                segment_audio,  # Передаємо масив напряму
+                buf,  # Передаємо BytesIO замість масиву
                 language=language,
                 beam_size=self.beam_size,
                 word_timestamps=False,  # Швидше для коротких сегментів
