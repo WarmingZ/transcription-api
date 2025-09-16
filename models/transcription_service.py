@@ -12,9 +12,17 @@ import soundfile as sf
 import time
 import hashlib
 
-from .config import logger, LANGUAGE_TOOL_AVAILABLE, SUPPORTED_MODELS, QUANTIZED_MODELS, ENABLE_DIARIZATION, DIARIZATION_MAX_WORKERS
+from .config import logger, LANGUAGE_TOOL_AVAILABLE, SUPPORTED_MODELS, QUANTIZED_MODELS, ENABLE_DIARIZATION, DIARIZATION_MAX_WORKERS, MAX_FILE_SIZE_MB, MAX_AUDIO_DURATION_MINUTES, MEMORY_PRESSURE_THRESHOLD
 from .whisper_model import LocalWhisperModel
 from .diarization import SimpleDiarizationService
+
+# Імпорт моніторингу пам'яті
+try:
+    from memory_monitor import memory_monitor
+    MEMORY_MONITOR_AVAILABLE = True
+except ImportError:
+    MEMORY_MONITOR_AVAILABLE = False
+    logger.warning("Моніторинг пам'яті недоступний")
 
 class LocalTranscriptionService:
     """Сервіс для локальної транскрипції аудіо з орфографічною корекцією"""
@@ -30,13 +38,13 @@ class LocalTranscriptionService:
         self.best_of = best_of
         self.word_timestamps = word_timestamps
         
-        # Кешування аудіо для оптимізації (зменшено для економії пам'яті)
+        # Кешування аудіо для оптимізації (мінімізовано для економії пам'яті)
         self._audio_cache = {}
-        self._cache_max_size = 5  # Максимум 5 файлів в кеші (оптимізовано для економії пам'яті)
+        self._cache_max_size = 2  # Максимум 2 файли в кеші (мінімізовано для економії пам'яті)
         
         # Кешування результатів LanguageTool для уникнення повторних перевірок
         self._language_tool_cache = {}
-        self._lt_cache_max_size = 50  # Максимум 50 текстів в кеші LanguageTool (зменшено)
+        self._lt_cache_max_size = 25  # Максимум 25 текстів в кеші LanguageTool (мінімізовано)
         
         # Ініціалізуємо LanguageTool для української мови (опціонально)
         if LANGUAGE_TOOL_AVAILABLE:
@@ -364,10 +372,38 @@ class LocalTranscriptionService:
         
         return cleaned_sentences
     
+    def _validate_audio_file(self, audio_path: str) -> None:
+        """Перевіряє розмір файлу та тривалість аудіо"""
+        try:
+            # Перевіряємо розмір файлу
+            file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+            if file_size_mb > MAX_FILE_SIZE_MB:
+                raise ValueError(f"Файл занадто великий: {file_size_mb:.1f}MB > {MAX_FILE_SIZE_MB}MB")
+            
+            # Перевіряємо тривалість аудіо
+            audio, sr = librosa.load(audio_path, sr=None, mono=True)
+            duration_minutes = len(audio) / sr / 60
+            if duration_minutes > MAX_AUDIO_DURATION_MINUTES:
+                raise ValueError(f"Аудіо занадто довге: {duration_minutes:.1f}хв > {MAX_AUDIO_DURATION_MINUTES}хв")
+            
+            logger.info(f"✅ Файл валідний: {file_size_mb:.1f}MB, {duration_minutes:.1f}хв")
+            
+        except Exception as e:
+            logger.error(f"Помилка валідації файлу: {e}")
+            raise
+
     def transcribe_simple(self, audio_path: str, language: str = "uk", model_size: str = "auto", use_parallel: bool = False, force_no_chunks: bool = True) -> Dict[str, Any]:
         """Швидка транскрипція з опціональним паралельним обробленням"""
         if not self.models_loaded:
             raise RuntimeError("Моделі не завантажені")
+        
+        # Перевіряємо файл перед обробкою
+        self._validate_audio_file(audio_path)
+        
+        # Перевіряємо тиск на пам'ять
+        if MEMORY_MONITOR_AVAILABLE and memory_monitor.check_memory_pressure():
+            logger.warning("⚠️ Високий тиск на пам'ять, примусове очищення")
+            memory_monitor.force_garbage_collection()
         
         # Перевіряємо чи потрібно змінити модель
         if model_size != "auto" and model_size != self.whisper_model.model_size:
@@ -376,27 +412,54 @@ class LocalTranscriptionService:
                 logger.warning(f"Не вдалося завантажити модель {model_size}, використовується поточна")
         
         start_time = time.time()
-        try:
-            logger.info(f"Початок швидкої транскрипції з faster-whisper (модель: {self.whisper_model.model_size})...")
-            
-            # Завжди використовуємо послідовну обробку (чанки вимкнено)
-            logger.info("🚫 Чанки вимкнено - використовується послідовна обробка")
-            transcription_result = self.whisper_model.transcribe(audio_path, language)
-            
-            # Обробка результатів з орфографічною корекцією
-            processed_result = self._process_simple_results(transcription_result, language)
-            
-            elapsed_time = time.time() - start_time
-            logger.info(f"Транскрипція завершена успішно за {elapsed_time:.2f} секунд")
-            
-            # Очищуємо кеші для економії пам'яті
-            self.clear_all_caches()
-            
-            return processed_result
-            
-        except Exception as e:
-            logger.error(f"Помилка транскрипції: {e}")
-            raise
+        
+        # Використовуємо контекст моніторингу пам'яті
+        if MEMORY_MONITOR_AVAILABLE:
+            with memory_monitor.memory_context("транскрипція"):
+                try:
+                    logger.info(f"Початок швидкої транскрипції з faster-whisper (модель: {self.whisper_model.model_size})...")
+                    
+                    # Завжди використовуємо послідовну обробку (чанки вимкнено)
+                    logger.info("🚫 Чанки вимкнено - використовується послідовна обробка")
+                    transcription_result = self.whisper_model.transcribe(audio_path, language)
+                    
+                    # Обробка результатів з орфографічною корекцією
+                    processed_result = self._process_simple_results(transcription_result, language)
+                    
+                    elapsed_time = time.time() - start_time
+                    logger.info(f"Транскрипція завершена успішно за {elapsed_time:.2f} секунд")
+                    
+                    # Очищуємо кеші для економії пам'яті
+                    self.clear_all_caches()
+                    
+                    return processed_result
+                    
+                except Exception as e:
+                    logger.error(f"Помилка транскрипції: {e}")
+                    raise
+        else:
+            # Fallback без моніторингу пам'яті
+            try:
+                logger.info(f"Початок швидкої транскрипції з faster-whisper (модель: {self.whisper_model.model_size})...")
+                
+                # Завжди використовуємо послідовну обробку (чанки вимкнено)
+                logger.info("🚫 Чанки вимкнено - використовується послідовна обробка")
+                transcription_result = self.whisper_model.transcribe(audio_path, language)
+                
+                # Обробка результатів з орфографічною корекцією
+                processed_result = self._process_simple_results(transcription_result, language)
+                
+                elapsed_time = time.time() - start_time
+                logger.info(f"Транскрипція завершена успішно за {elapsed_time:.2f} секунд")
+                
+                # Очищуємо кеші для економії пам'яті
+                self.clear_all_caches()
+                
+                return processed_result
+                
+            except Exception as e:
+                logger.error(f"Помилка транскрипції: {e}")
+                raise
     
     def transcribe_with_diarization(self, audio_path: str, language: str = "uk", model_size: str = "auto", use_parallel: bool = False, force_no_chunks: bool = True) -> Dict[str, Any]:
         """Транскрипція з діаризацією (Оператор/Клієнт) з паралельною обробкою"""

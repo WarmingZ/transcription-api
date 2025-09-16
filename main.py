@@ -136,13 +136,13 @@ async def load_models():
         # Виводимо інформацію про master токен
         api_key_manager.print_startup_info()
         
-        # Ініціалізуємо чергу та executor (оптимізовано для 8 CPU)
-        task_queue = asyncio.Queue()
-        executor = ThreadPoolExecutor(max_workers=4)  # Зменшено для економії пам'яті
+        # Ініціалізуємо чергу та executor (оптимізовано для 8 CPU + 14GB RAM)
+        task_queue = asyncio.Queue(maxsize=10)  # Обмежуємо розмір черги
+        executor = ThreadPoolExecutor(max_workers=3)  # Ще більше зменшено для стабільності
         
         # Запускаємо воркери для обробки черги
         logger.info("Запуск воркерів для обробки черги транскрипції...")
-        for i in range(4):  # Запускаємо 4 воркери (зменшено для економії пам'яті)
+        for i in range(3):  # Запускаємо 3 воркери (мінімізовано для стабільності)
             worker_task = asyncio.create_task(worker())
             worker_tasks.append(worker_task)
             logger.info(f"Воркер {i+1} запущено")
@@ -320,31 +320,46 @@ def process_transcription_task_sync(task_id: str, file_path: str, language: str,
                 logger.warning(f"Не вдалося видалити тимчасовий файл: {e}")
 
 async def worker():
-    """Воркер для обробки задач з черги"""
+    """Воркер для обробки задач з черги (оптимізований для CPU)"""
     worker_id = id(asyncio.current_task())
     logger.info(f"Воркер {worker_id} запущено")
     
     while True:
         try:
-            # Очікуємо задачу з черги
-            task_data = await task_queue.get()
+            # Очікуємо задачу з черги з таймаутом
+            try:
+                task_data = await asyncio.wait_for(task_queue.get(), timeout=30.0)
+            except asyncio.TimeoutError:
+                # Якщо немає задач, очищуємо пам'ять та чекаємо далі
+                import gc
+                gc.collect()
+                continue
+            
             logger.info(f"Воркер {worker_id} отримав задачу {task_data['task_id']}")
             
-            # Обробляємо задачу в окремому потоці
-            await asyncio.get_event_loop().run_in_executor(
-                executor,
-                process_transcription_task_sync,
-                task_data['task_id'],
-                task_data['file_path'],
-                task_data['language'],
-                task_data['model_size'],
-                task_data['use_diarization'],
-                task_data['api_key']
-            )
-            
-            # Позначаємо задачу як виконану
-            task_queue.task_done()
-            logger.info(f"Воркер {worker_id} завершив задачу {task_data['task_id']}")
+            # Обробляємо задачу в окремому потоці з обмеженням часу
+            try:
+                await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        executor,
+                        process_transcription_task_sync,
+                        task_data['task_id'],
+                        task_data['file_path'],
+                        task_data['language'],
+                        task_data['model_size'],
+                        task_data['use_diarization'],
+                        task_data['api_key']
+                    ),
+                    timeout=1800.0  # 30 хвилин максимум
+                )
+                
+                # Позначаємо задачу як виконану
+                task_queue.task_done()
+                logger.info(f"Воркер {worker_id} завершив задачу {task_data['task_id']}")
+                
+            except asyncio.TimeoutError:
+                logger.error(f"Воркер {worker_id}: задача {task_data['task_id']} перевищила час виконання")
+                task_queue.task_done()
             
             # Очищуємо пам'ять після кожної задачі
             import gc
@@ -356,7 +371,7 @@ async def worker():
             break
         except Exception as e:
             logger.error(f"Помилка воркера {worker_id}: {e}")
-            await asyncio.sleep(1)  # Пауза перед наступною спробою
+            await asyncio.sleep(2)  # Більша пауза перед наступною спробою
 
 # Функції транскрипції тепер використовують локальний сервіс
 
@@ -432,6 +447,13 @@ async def transcribe_audio_file(
         # Зберігаємо статус задачі
         tasks[task_id] = task_status
         save_task_status(task_id, task_status)
+        
+        # Перевіряємо розмір черги перед додаванням задачі
+        if task_queue.qsize() >= 8:  # Якщо черга майже повна
+            raise HTTPException(
+                status_code=503, 
+                detail="Сервер перевантажений. Спробуйте пізніше."
+            )
         
         # Додаємо задачу в чергу
         await task_queue.put({

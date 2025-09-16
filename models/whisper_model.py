@@ -16,6 +16,14 @@ from .config import (
     SUPPORTED_MODELS, QUANTIZED_MODELS, CPU_COMPUTE_TYPE, GPU_COMPUTE_TYPE
 )
 
+# Імпорт менеджера моделей
+try:
+    from .model_manager import model_manager
+    MODEL_MANAGER_AVAILABLE = True
+except ImportError:
+    MODEL_MANAGER_AVAILABLE = False
+    logger.warning("Менеджер моделей недоступний")
+
 # Імпорт soxr для швидкого ресемплінгу
 try:
     import soxr
@@ -35,7 +43,27 @@ class LocalWhisperModel:
         self.transcription_service = transcription_service  # Посилання на основний сервіс для кешування
         
     def load_model(self) -> bool:
-        """Завантажує faster-whisper модель в локальну директорію проекту"""
+        """Завантажує faster-whisper модель через менеджер моделей"""
+        try:
+            if MODEL_MANAGER_AVAILABLE:
+                # Використовуємо менеджер моделей для lazy loading
+                self.model = model_manager.load_model(self.model_size, self.device)
+                if self.model:
+                    logger.info(f"✅ Модель {self.model_size} завантажена через менеджер")
+                    return True
+                else:
+                    logger.error(f"❌ Не вдалося завантажити модель {self.model_size}")
+                    return False
+            else:
+                # Fallback на старий метод
+                return self._load_model_fallback()
+                
+        except Exception as e:
+            logger.error(f"Помилка завантаження моделі через менеджер: {e}")
+            return self._load_model_fallback()
+    
+    def _load_model_fallback(self) -> bool:
+        """Fallback метод завантаження моделі"""
         try:
             from faster_whisper import WhisperModel
             
@@ -43,29 +71,25 @@ class LocalWhisperModel:
             if self.device == "cpu":
                 compute_type = CPU_COMPUTE_TYPE  # int8 для CPU
                 cpu_threads = min(8, os.cpu_count() or 8)  # Використовуємо всі 8 CPU
-                # Використовуємо quantized модель (compute_type="int8" автоматично quantized)
                 model_name = self.model_size
-                logger.info(f"🚀 CPU-only оптимізація: model={model_name} (quantized), compute_type={compute_type}, cpu_threads={cpu_threads}")
+                logger.info(f"🚀 CPU-only оптимізація (fallback): model={model_name} (quantized), compute_type={compute_type}, cpu_threads={cpu_threads}")
             else:
                 # Для GPU: завжди float16 (хоча ви завжди використовуєте CPU)
                 compute_type = GPU_COMPUTE_TYPE
                 cpu_threads = 2  # Більше потоків для GPU
                 model_name = self.model_size
-                logger.info(f"🚀 GPU оптимізація: model={model_name}, compute_type={compute_type}")
+                logger.info(f"🚀 GPU оптимізація (fallback): model={model_name}, compute_type={compute_type}")
             
-            # Шлях до моделі в локальній директорії проекту
-            model_path = MODELS_DIR / f"faster-whisper-{self.model_size}"
-            
-            logger.info(f"Завантаження faster-whisper моделі {self.model_size} в {model_path}...")
+            logger.info(f"Завантаження faster-whisper моделі {self.model_size} (fallback)...")
             
             try:
                 self.model = WhisperModel(
-                    model_name,  # Використовуємо quantized модель якщо доступна
+                    model_name,
                     device=self.device, 
                     compute_type=compute_type,
                     cpu_threads=cpu_threads,
-                    num_workers=4 if self.device == "cpu" else 1,  # Більше воркерів для CPU-only сервера
-                    download_root=str(MODELS_DIR)  # Завантажуємо в локальну директорію
+                    num_workers=2 if self.device == "cpu" else 1,  # Зменшено для економії пам'яті
+                    download_root=str(MODELS_DIR)
                 )
             except Exception as e:
                 # Fallback: спробуємо з float16 якщо int8 не працює
@@ -77,17 +101,17 @@ class LocalWhisperModel:
                         device=self.device, 
                         compute_type="float16",
                         cpu_threads=cpu_threads,
-                        num_workers=4 if self.device == "cpu" else 1,  # Більше воркерів для CPU-only сервера
+                        num_workers=2 if self.device == "cpu" else 1,
                         download_root=str(MODELS_DIR)
                     )
                 else:
                     raise e
             
-            logger.info(f"faster-whisper модель {self.model_size} завантажена успішно в {MODELS_DIR} (compute_type: {compute_type})")
+            logger.info(f"faster-whisper модель {self.model_size} завантажена успішно (fallback, compute_type: {compute_type})")
             return True
             
         except Exception as e:
-            logger.error(f"Помилка завантаження faster-whisper: {e}")
+            logger.error(f"Помилка завантаження faster-whisper (fallback): {e}")
             return False
     
     
