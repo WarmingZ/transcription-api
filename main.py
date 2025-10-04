@@ -137,7 +137,7 @@ async def load_models():
         api_key_manager.print_startup_info()
         
         # Ініціалізуємо чергу та executor (оптимізовано для 8 CPU + 14GB RAM)
-        task_queue = asyncio.Queue(maxsize=10)  # Обмежуємо розмір черги
+        task_queue = asyncio.Queue(maxsize=25)  # Збільшено розмір черги до 25
         executor = ThreadPoolExecutor(max_workers=3)  # Ще більше зменшено для стабільності
         
         # Запускаємо воркери для обробки черги
@@ -449,7 +449,7 @@ async def transcribe_audio_file(
         save_task_status(task_id, task_status)
         
         # Перевіряємо розмір черги перед додаванням задачі
-        if task_queue.qsize() >= 8:  # Якщо черга майже повна
+        if task_queue.qsize() >= 20:  # Якщо черга майже повна (залишаємо 5 місць)
             raise HTTPException(
                 status_code=503, 
                 detail="Сервер перевантажений. Спробуйте пізніше."
